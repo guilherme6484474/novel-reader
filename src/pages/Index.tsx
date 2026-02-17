@@ -408,7 +408,14 @@ const Index = () => {
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-foreground truncate">{h.novel_title}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      {h.chapter_title && <span className="text-foreground/60">{h.chapter_title} · </span>}
+                      <span className="text-foreground/60">
+                        {(() => {
+                          if (h.chapter_title && h.chapter_title !== h.novel_title) return h.chapter_title;
+                          const match = h.chapter_url.match(/chapter[_-]?(\d+)/i);
+                          return match ? `Capítulo ${match[1]}` : 'Último capítulo';
+                        })()}
+                      </span>
+                      {' · '}
                       {new Date(h.last_read_at).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     </p>
                   </div>
