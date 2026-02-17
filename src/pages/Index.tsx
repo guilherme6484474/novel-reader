@@ -13,6 +13,7 @@ import {
   BookOpen, ChevronLeft, ChevronRight, Globe, Loader2,
   Pause, Play, Square, Volume2, Settings2, Search,
   Moon, Sun, LogIn, LogOut, History, X, Trash2, Minus, Plus, Type,
+  RefreshCw,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
@@ -123,10 +124,17 @@ const Index = () => {
   const [fontSize, setFontSize] = useState(() => Number(localStorage.getItem('nr-fontSize')) || 18);
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [autoRead, setAutoRead] = useState(false);
+  const autoReadRef = useRef(autoRead);
   const tts = useTTS();
   const { theme, setTheme } = useTheme();
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const chapterRef = useRef<ChapterData | null>(null);
+
+  // Keep refs in sync
+  useEffect(() => { autoReadRef.current = autoRead; }, [autoRead]);
+  useEffect(() => { chapterRef.current = chapter; }, [chapter]);
 
   // Persist preferences
   useEffect(() => { localStorage.setItem('nr-fontSize', String(fontSize)); }, [fontSize]);
@@ -142,6 +150,16 @@ const Index = () => {
     if (savedVoice) tts.setSelectedVoice(savedVoice);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Auto-advance: when TTS ends and autoRead is on, go to next chapter
+  useEffect(() => {
+    tts.setOnEnd(() => {
+      if (autoReadRef.current && chapterRef.current?.nextChapterUrl) {
+        loadChapter(chapterRef.current.nextChapterUrl);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tts.setOnEnd]);
 
   useEffect(() => {
     if (user) {
@@ -174,7 +192,13 @@ const Index = () => {
       // Translate in background
       setIsTranslating(true);
       translateChapter(data.content, language)
-        .then((translated) => setDisplayText(translated))
+        .then((translated) => {
+          setDisplayText(translated);
+          // Auto-start TTS if autoRead is enabled
+          if (autoReadRef.current) {
+            setTimeout(() => tts.speak(translated), 300);
+          }
+        })
         .catch((err: any) => toast.error("Erro na tradução: " + err.message))
         .finally(() => setIsTranslating(false));
     } catch (err: any) {
@@ -585,8 +609,20 @@ const Index = () => {
           <div className="mx-auto max-w-3xl">
             <Progress value={tts.progress} className="mb-2 h-1 rounded-full" />
             <div className="flex items-center justify-center gap-2">
+              {/* Auto-read toggle */}
+              <Button
+                size="sm"
+                variant={autoRead ? "default" : "outline"}
+                onClick={() => setAutoRead(!autoRead)}
+                className={`rounded-xl gap-1.5 px-3 text-xs ${autoRead ? '' : 'border-border/60'}`}
+                title={autoRead ? "Leitura contínua ativada" : "Ativar leitura contínua"}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${autoRead ? 'animate-spin' : ''}`} style={autoRead ? { animationDuration: '3s' } : {}} />
+                <span className="hidden sm:inline">Auto</span>
+              </Button>
+
               {!tts.isSpeaking ? (
-                <Button size="sm" onClick={() => tts.speak(displayText)} className="rounded-xl gap-2 px-4 sm:px-5 text-xs sm:text-sm">
+                <Button size="sm" onClick={() => { tts.speak(displayText); }} className="rounded-xl gap-2 px-4 sm:px-5 text-xs sm:text-sm">
                   <Volume2 className="h-4 w-4" />
                   <span className="hidden sm:inline">Ouvir Capítulo</span>
                   <span className="sm:hidden">Ouvir</span>
@@ -602,7 +638,7 @@ const Index = () => {
                   </Button>
                   <Button
                     size="icon" variant="ghost"
-                    onClick={tts.stop}
+                    onClick={() => { tts.stop(); setAutoRead(false); }}
                     className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl text-destructive hover:text-destructive"
                   >
                     <Square className="h-4 w-4" />
