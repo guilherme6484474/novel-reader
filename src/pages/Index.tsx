@@ -124,7 +124,7 @@ const Index = () => {
   const [fontSize, setFontSize] = useState(() => Number(localStorage.getItem('nr-fontSize')) || 18);
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
-  const [autoRead, setAutoRead] = useState(false);
+  const [autoRead, setAutoRead] = useState(() => localStorage.getItem('nr-autoRead') === 'true');
   const autoReadRef = useRef(autoRead);
   const tts = useTTS();
   const { theme, setTheme } = useTheme();
@@ -141,6 +141,7 @@ const Index = () => {
   useEffect(() => { localStorage.setItem('nr-language', language); }, [language]);
   useEffect(() => { localStorage.setItem('nr-ttsRate', String(tts.rate)); }, [tts.rate]);
   useEffect(() => { localStorage.setItem('nr-ttsVoice', tts.selectedVoice); }, [tts.selectedVoice]);
+  useEffect(() => { localStorage.setItem('nr-autoRead', String(autoRead)); }, [autoRead]);
 
   // Load TTS preferences on mount
   useEffect(() => {
