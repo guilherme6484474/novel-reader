@@ -7,9 +7,9 @@ export function useTTS() {
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedVoice, setSelectedVoice] = useState<string>("");
   const [rate, setRate] = useState(1);
+  const [activeCharIndex, setActiveCharIndex] = useState(-1);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const textRef = useRef("");
-  const charIndexRef = useRef(0);
 
   useEffect(() => {
     const loadVoices = () => {
@@ -25,37 +25,45 @@ export function useTTS() {
     return () => { speechSynthesis.onvoiceschanged = null; };
   }, [selectedVoice]);
 
-  const speak = useCallback((text: string) => {
+  const speakFromIndex = useCallback((text: string, startCharIndex = 0) => {
     speechSynthesis.cancel();
+    const textToSpeak = text.slice(startCharIndex);
     textRef.current = text;
-    charIndexRef.current = 0;
 
-    const utterance = new SpeechSynthesisUtterance(text);
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
     const voice = voices.find(v => v.name === selectedVoice);
     if (voice) utterance.voice = voice;
     utterance.rate = rate;
 
     utterance.onboundary = (e) => {
       if (e.name === 'word') {
-        charIndexRef.current = e.charIndex;
-        setProgress((e.charIndex / text.length) * 100);
+        const globalIndex = startCharIndex + e.charIndex;
+        setActiveCharIndex(globalIndex);
+        setProgress((globalIndex / text.length) * 100);
       }
     };
     utterance.onend = () => {
       setIsSpeaking(false);
       setIsPaused(false);
       setProgress(100);
+      setActiveCharIndex(-1);
     };
     utterance.onerror = () => {
       setIsSpeaking(false);
       setIsPaused(false);
+      setActiveCharIndex(-1);
     };
 
     utteranceRef.current = utterance;
     speechSynthesis.speak(utterance);
     setIsSpeaking(true);
     setIsPaused(false);
+    setActiveCharIndex(startCharIndex);
   }, [voices, selectedVoice, rate]);
+
+  const speak = useCallback((text: string) => {
+    speakFromIndex(text, 0);
+  }, [speakFromIndex]);
 
   const pause = useCallback(() => {
     speechSynthesis.pause();
@@ -72,10 +80,12 @@ export function useTTS() {
     setIsSpeaking(false);
     setIsPaused(false);
     setProgress(0);
+    setActiveCharIndex(-1);
   }, []);
 
   return {
     isSpeaking, isPaused, progress, voices, selectedVoice,
-    rate, setRate, setSelectedVoice, speak, pause, resume, stop,
+    rate, setRate, setSelectedVoice, speak, speakFromIndex, pause, resume, stop,
+    activeCharIndex,
   };
 }
