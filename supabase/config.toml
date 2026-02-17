@@ -1,1 +1,7 @@
 project_id = "sojcdnljapfllnltgxfb"
+
+[functions.scrape-chapter]
+verify_jwt = false
+
+[functions.translate-chapter]
+verify_jwt = false
