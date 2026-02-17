@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,6 +37,78 @@ type HistoryEntry = {
   chapter_title: string | null;
   last_read_at: string;
 };
+
+// Component that renders text with word-level highlighting and click-to-read
+function ChapterArticle({
+  displayText,
+  activeCharIndex,
+  isSpeaking,
+  onClickWord,
+}: {
+  displayText: string;
+  activeCharIndex: number;
+  isSpeaking: boolean;
+  onClickWord: (charIndex: number) => void;
+}) {
+  const activeRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (activeRef.current && isSpeaking) {
+      activeRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [activeCharIndex, isSpeaking]);
+
+  const paragraphs = useMemo(() => {
+    const result: { text: string; globalStart: number }[] = [];
+    let offset = 0;
+    for (const line of displayText.split('\n')) {
+      if (line.trim()) {
+        result.push({ text: line, globalStart: offset });
+      }
+      offset += line.length + 1; // +1 for \n
+    }
+    return result;
+  }, [displayText]);
+
+  return (
+    <article style={{ fontFamily: 'var(--font-reading)' }}>
+      {paragraphs.map((para, pi) => (
+        <p key={pi} className="mb-4 text-base sm:text-lg leading-[1.8] sm:leading-[1.85] text-foreground/85">
+          {para.text.split(/(\s+)/).map((word, wi) => {
+            // Calculate this word's global char index
+            const localOffset = para.text.indexOf(word, 
+              para.text.split(/(\s+)/).slice(0, wi).join('').length
+            );
+            const globalIndex = para.globalStart + localOffset;
+
+            if (!word.trim()) return <span key={wi}>{word}</span>;
+
+            const isActive = isSpeaking && activeCharIndex >= 0 &&
+              globalIndex <= activeCharIndex &&
+              activeCharIndex < globalIndex + word.length;
+
+            return (
+              <span
+                key={wi}
+                ref={isActive ? activeRef : undefined}
+                onClick={() => onClickWord(globalIndex)}
+                className={`cursor-pointer transition-colors duration-150 rounded-sm px-[1px] ${
+                  isActive
+                    ? 'bg-primary/20 text-primary font-medium'
+                    : isSpeaking && activeCharIndex >= 0 && globalIndex < activeCharIndex
+                    ? 'text-muted-foreground/60'
+                    : 'hover:bg-primary/10'
+                }`}
+              >
+                {word}
+              </span>
+            );
+          })}
+        </p>
+      ))}
+    </article>
+  );
+}
 
 const Index = () => {
   const [url, setUrl] = useState("");
@@ -348,15 +420,12 @@ const Index = () => {
               )}
             </header>
 
-            <article style={{ fontFamily: 'var(--font-reading)' }}>
-              {displayText.split('\n').map((paragraph, i) => (
-                paragraph.trim() ? (
-                  <p key={i} className="mb-4 text-base sm:text-lg leading-[1.8] sm:leading-[1.85] text-foreground/85">
-                    {paragraph}
-                  </p>
-                ) : null
-              ))}
-            </article>
+            <ChapterArticle
+              displayText={displayText}
+              activeCharIndex={tts.activeCharIndex}
+              isSpeaking={tts.isSpeaking}
+              onClickWord={(charIndex) => tts.speakFromIndex(displayText, charIndex)}
+            />
 
             {/* Nav */}
             <nav className="flex items-center justify-between py-5 sm:py-6 border-t border-border/60 mt-8">
