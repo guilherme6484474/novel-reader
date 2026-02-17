@@ -114,19 +114,34 @@ function ChapterArticle({
 
 const Index = () => {
   const [url, setUrl] = useState("");
-  const [language, setLanguage] = useState("Portuguese (Brazilian)");
+  const [language, setLanguage] = useState(() => localStorage.getItem('nr-language') || "Portuguese (Brazilian)");
   const [chapter, setChapter] = useState<ChapterData | null>(null);
   const [displayText, setDisplayText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [fontSize, setFontSize] = useState(18);
+  const [fontSize, setFontSize] = useState(() => Number(localStorage.getItem('nr-fontSize')) || 18);
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const tts = useTTS();
   const { theme, setTheme } = useTheme();
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+
+  // Persist preferences
+  useEffect(() => { localStorage.setItem('nr-fontSize', String(fontSize)); }, [fontSize]);
+  useEffect(() => { localStorage.setItem('nr-language', language); }, [language]);
+  useEffect(() => { localStorage.setItem('nr-ttsRate', String(tts.rate)); }, [tts.rate]);
+  useEffect(() => { localStorage.setItem('nr-ttsVoice', tts.selectedVoice); }, [tts.selectedVoice]);
+
+  // Load TTS preferences on mount
+  useEffect(() => {
+    const savedRate = localStorage.getItem('nr-ttsRate');
+    if (savedRate) tts.setRate(Number(savedRate));
+    const savedVoice = localStorage.getItem('nr-ttsVoice');
+    if (savedVoice) tts.setSelectedVoice(savedVoice);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (user) {
@@ -375,17 +390,21 @@ const Index = () => {
           {history.length === 0 ? (
             <p className="text-xs text-muted-foreground">Nenhum capítulo lido ainda.</p>
           ) : (
-            <div className="space-y-2 max-h-60 overflow-y-auto">
+            <div className="space-y-2 max-h-72 overflow-y-auto">
               {history.map((h) => (
                 <div
                   key={h.id}
-                  className="flex items-center justify-between p-2.5 rounded-lg bg-background border border-border/40 hover:border-primary/30 transition-colors cursor-pointer group"
+                  className="flex items-center gap-3 p-3 rounded-xl bg-background border border-border/40 hover:border-primary/30 transition-colors cursor-pointer group"
                   onClick={() => loadChapter(h.chapter_url)}
                 >
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                    <BookOpen className="h-4 w-4 text-primary" />
+                  </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-foreground truncate">{h.novel_title}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(h.last_read_at).toLocaleDateString('pt-BR')}
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {h.chapter_title && <span className="text-foreground/60">{h.chapter_title} · </span>}
+                      {new Date(h.last_read_at).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     </p>
                   </div>
                   <Button
@@ -403,7 +422,7 @@ const Index = () => {
       )}
 
       {/* Content */}
-      <main className="mx-auto max-w-3xl px-4 sm:px-6 py-6 sm:py-8 pb-28">
+      <main className="mx-auto max-w-3xl px-4 sm:px-6 py-6 sm:py-8 pb-32">
         {/* Empty State */}
         {!chapter && !isLoading && (
           <div className="flex flex-col items-center justify-center py-16 sm:py-24 text-center">
@@ -464,7 +483,7 @@ const Index = () => {
             />
 
             {/* Nav */}
-            <nav className="flex items-center justify-between py-5 sm:py-6 border-t border-border/60 mt-8">
+            <nav className="flex items-center justify-between py-5 sm:py-6 border-t border-border/60 mt-8 mb-16">
               <Button
                 variant="outline"
                 onClick={() => chapter.prevChapterUrl && loadChapter(chapter.prevChapterUrl)}
