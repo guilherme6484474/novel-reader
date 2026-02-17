@@ -5,8 +5,8 @@ export function useTTS() {
   const [isPaused, setIsPaused] = useState(false);
   const [progress, setProgress] = useState(0);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [selectedVoice, setSelectedVoice] = useState<string>("");
-  const [rate, setRate] = useState(1);
+  const [selectedVoice, setSelectedVoice] = useState<string>(() => localStorage.getItem('nr-ttsVoice') || "");
+  const [rate, setRate] = useState(() => Number(localStorage.getItem('nr-ttsRate')) || 1);
   const [activeCharIndex, setActiveCharIndex] = useState(-1);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const textRef = useRef("");
@@ -16,9 +16,13 @@ export function useTTS() {
     const loadVoices = () => {
       const v = speechSynthesis.getVoices();
       setVoices(v);
-      if (v.length > 0 && !selectedVoice) {
-        const ptVoice = v.find(voice => voice.lang.startsWith('pt'));
-        setSelectedVoice(ptVoice?.name || v[0].name);
+      if (v.length > 0) {
+        setSelectedVoice(prev => {
+          // If we already have a saved voice that exists in the list, keep it
+          if (prev && v.some(voice => voice.name === prev)) return prev;
+          const ptVoice = v.find(voice => voice.lang.startsWith('pt'));
+          return ptVoice?.name || v[0].name;
+        });
       }
     };
     loadVoices();
