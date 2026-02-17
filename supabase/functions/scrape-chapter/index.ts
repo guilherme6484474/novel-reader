@@ -60,6 +60,13 @@ function cleanHtml(html: string): string {
     .replace(/&mdash;/g, '—')
     .replace(/&ndash;/g, '–')
     .replace(/window\.\w+\s*=[\s\S]*?[;\n]/g, '')
+    // Remove footer/comment junk
+    .replace(/Total\s+Respo(?:nses|stas)\s*:\s*\d+/gi, '')
+    .replace(/Erro?\s+(?:ao\s+)?(?:loading|carregar)\s+comments?.*$/gim, '')
+    .replace(/Error\s+loading\s+comments?.*$/gim, '')
+    .replace(/Please\s+try\s+again\s+later\.?/gi, '')
+    .replace(/Por\s+favor,?\s+tente\s+novamente\s+mais\s+tarde\.?/gi, '')
+    .replace(/—\s*End\s+of\s+Chapter\s+\d+\s*—/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
