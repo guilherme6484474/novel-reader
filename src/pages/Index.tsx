@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import {
   BookOpen, ChevronLeft, ChevronRight, Globe, Loader2,
   Pause, Play, Square, Volume2, Settings2, Search,
-  Moon, Sun, LogIn, LogOut, History, X, Trash2,
+  Moon, Sun, LogIn, LogOut, History, X, Trash2, Minus, Plus, Type,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
@@ -44,11 +44,13 @@ function ChapterArticle({
   activeCharIndex,
   isSpeaking,
   onClickWord,
+  fontSize,
 }: {
   displayText: string;
   activeCharIndex: number;
   isSpeaking: boolean;
   onClickWord: (charIndex: number) => void;
+  fontSize: number;
 }) {
   const activeRef = useRef<HTMLSpanElement>(null);
 
@@ -71,9 +73,9 @@ function ChapterArticle({
   }, [displayText]);
 
   return (
-    <article style={{ fontFamily: 'var(--font-reading)' }}>
+    <article style={{ fontFamily: 'var(--font-reading)', fontSize: `${fontSize}px` }}>
       {paragraphs.map((para, pi) => (
-        <p key={pi} className="mb-4 text-base sm:text-lg leading-[1.8] sm:leading-[1.85] text-foreground/85">
+        <p key={pi} className="mb-4 leading-[1.85] text-foreground/85">
           {para.text.split(/(\s+)/).map((word, wi) => {
             // Calculate this word's global char index
             const localOffset = para.text.indexOf(word, 
@@ -118,6 +120,7 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [fontSize, setFontSize] = useState(18);
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const tts = useTTS();
@@ -296,32 +299,64 @@ const Index = () => {
 
           {/* Settings panel */}
           {showSettings && (
-            <div className="mt-3 p-4 rounded-xl border border-border/60 bg-card space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Voz (TTS)</p>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-muted-foreground w-10">Voz</span>
-                <Select value={tts.selectedVoice} onValueChange={tts.setSelectedVoice}>
-                  <SelectTrigger className="h-8 text-xs flex-1 rounded-lg bg-background">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {tts.voices.map((v) => (
-                      <SelectItem key={v.name} value={v.name}>
-                        {v.name} ({v.lang})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            <div className="mt-3 p-4 rounded-xl border border-border/60 bg-card space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Leitura</p>
+                <div className="flex items-center gap-3">
+                  <Type className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground w-12">Fonte</span>
+                  <Button
+                    variant="outline" size="icon"
+                    className="h-7 w-7 rounded-lg"
+                    onClick={() => setFontSize(prev => Math.max(12, prev - 2))}
+                    disabled={fontSize <= 12}
+                  >
+                    <Minus className="h-3 w-3" />
+                  </Button>
+                  <span className="text-xs font-medium text-foreground w-8 text-center">{fontSize}</span>
+                  <Button
+                    variant="outline" size="icon"
+                    className="h-7 w-7 rounded-lg"
+                    onClick={() => setFontSize(prev => Math.min(32, prev + 2))}
+                    disabled={fontSize >= 32}
+                  >
+                    <Plus className="h-3 w-3" />
+                  </Button>
+                  <Slider
+                    value={[fontSize]}
+                    onValueChange={([v]) => setFontSize(v)}
+                    min={12} max={32} step={1}
+                    className="flex-1"
+                  />
+                </div>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-muted-foreground w-10">Vel.</span>
-                <Slider
-                  value={[tts.rate]}
-                  onValueChange={([v]) => tts.setRate(v)}
-                  min={0.5} max={2} step={0.1}
-                  className="flex-1"
-                />
-                <span className="text-xs font-medium text-foreground w-10 text-right">{tts.rate}x</span>
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Voz (TTS)</p>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-muted-foreground w-10">Voz</span>
+                  <Select value={tts.selectedVoice} onValueChange={tts.setSelectedVoice}>
+                    <SelectTrigger className="h-8 text-xs flex-1 rounded-lg bg-background">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {tts.voices.map((v) => (
+                        <SelectItem key={v.name} value={v.name}>
+                          {v.name} ({v.lang})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-3 mt-2">
+                  <span className="text-xs text-muted-foreground w-10">Vel.</span>
+                  <Slider
+                    value={[tts.rate]}
+                    onValueChange={([v]) => tts.setRate(v)}
+                    min={0.5} max={2} step={0.1}
+                    className="flex-1"
+                  />
+                  <span className="text-xs font-medium text-foreground w-10 text-right">{tts.rate}x</span>
+                </div>
               </div>
             </div>
           )}
@@ -425,6 +460,7 @@ const Index = () => {
               activeCharIndex={tts.activeCharIndex}
               isSpeaking={tts.isSpeaking}
               onClickWord={(charIndex) => tts.speakFromIndex(displayText, charIndex)}
+              fontSize={fontSize}
             />
 
             {/* Nav */}
