@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -6,13 +6,18 @@ import {
 } from "@/components/ui/select";
 import { useTTS } from "@/hooks/use-tts";
 import { scrapeChapter, translateChapter, type ChapterData } from "@/lib/api/novel";
+import { saveReadingProgress, getReadingHistory, deleteReadingEntry } from "@/lib/api/reading-history";
+import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import {
   BookOpen, ChevronLeft, ChevronRight, Globe, Loader2,
   Pause, Play, Square, Volume2, Settings2, Search,
+  Moon, Sun, LogIn, LogOut, History, X, Trash2,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
+import { useTheme } from "next-themes";
+import { useNavigate } from "react-router-dom";
 
 const LANGUAGES = [
   { value: "Portuguese (Brazilian)", label: "🇧🇷 Português" },
@@ -24,6 +29,15 @@ const LANGUAGES = [
   { value: "Chinese", label: "🇨🇳 中文" },
 ];
 
+type HistoryEntry = {
+  id: string;
+  novel_url: string;
+  novel_title: string;
+  chapter_url: string;
+  chapter_title: string | null;
+  last_read_at: string;
+};
+
 const Index = () => {
   const [url, setUrl] = useState("");
   const [language, setLanguage] = useState("Portuguese (Brazilian)");
@@ -32,11 +46,23 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const tts = useTTS();
+  const { theme, setTheme } = useTheme();
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (user) {
+      getReadingHistory(user.id).then(setHistory);
+    }
+  }, [user]);
 
   const loadChapter = async (chapterUrl: string) => {
     setIsLoading(true);
     tts.stop();
+    setShowHistory(false);
     try {
       const data = await scrapeChapter(chapterUrl);
       setChapter(data);
@@ -44,6 +70,13 @@ const Index = () => {
       setDisplayText(data.content);
       setIsLoading(false);
 
+      // Save progress
+      if (user) {
+        saveReadingProgress(user.id, chapterUrl, data.title, chapterUrl, data.title);
+        getReadingHistory(user.id).then(setHistory);
+      }
+
+      // Translate in background
       setIsTranslating(true);
       translateChapter(data.content, language)
         .then((translated) => setDisplayText(translated))
@@ -76,51 +109,96 @@ const Index = () => {
     }
   };
 
+  const handleDeleteHistory = async (id: string) => {
+    await deleteReadingEntry(id);
+    setHistory((prev) => prev.filter((h) => h.id !== id));
+  };
+
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background text-foreground transition-colors">
       {/* Header */}
       <header className="sticky top-0 z-10 border-b border-border/60 bg-background/80 backdrop-blur-xl">
-        <div className="mx-auto max-w-2xl px-5 py-4">
-          <div className="flex items-center justify-between mb-4">
+        <div className="mx-auto max-w-3xl px-4 sm:px-6 py-3 sm:py-4">
+          {/* Top bar */}
+          <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2.5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
-                <BookOpen className="h-5 w-5 text-primary" />
+              <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-xl bg-primary/10">
+                <BookOpen className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
               </div>
-              <h1 className="text-lg font-bold tracking-tight" style={{ fontFamily: 'var(--font-heading)' }}>
+              <h1 className="text-base sm:text-lg font-bold tracking-tight" style={{ fontFamily: 'var(--font-heading)' }}>
                 Novel Reader
               </h1>
             </div>
-            <Button
-              variant="ghost" size="icon"
-              onClick={() => setShowSettings(!showSettings)}
-              className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
-            >
-              <Settings2 className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-1">
+              {user && (
+                <Button
+                  variant="ghost" size="icon"
+                  onClick={() => setShowHistory(!showHistory)}
+                  className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+                >
+                  <History className="h-4 w-4" />
+                </Button>
+              )}
+              <Button
+                variant="ghost" size="icon"
+                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+              >
+                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              </Button>
+              <Button
+                variant="ghost" size="icon"
+                onClick={() => setShowSettings(!showSettings)}
+                className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+              >
+                <Settings2 className="h-4 w-4" />
+              </Button>
+              {user ? (
+                <Button
+                  variant="ghost" size="icon"
+                  onClick={signOut}
+                  className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+                  title="Sair"
+                >
+                  <LogOut className="h-4 w-4" />
+                </Button>
+              ) : (
+                <Button
+                  variant="ghost" size="icon"
+                  onClick={() => navigate("/auth")}
+                  className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+                  title="Entrar"
+                >
+                  <LogIn className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
           </div>
 
+          {/* Search bar */}
           <form onSubmit={handleSubmit} className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
             <Input
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              placeholder="Cole o link do capítulo aqui..."
-              className="pl-9 pr-24 h-11 rounded-xl bg-card border-border/60 text-sm"
+              placeholder="Cole o link do capítulo..."
+              className="pl-9 pr-24 h-10 sm:h-11 rounded-xl bg-card border-border/60 text-sm"
               type="url"
             />
             <Button
               type="submit"
               disabled={isLoading || !url.trim()}
               size="sm"
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-lg h-8 px-4 text-xs font-semibold"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-lg h-7 sm:h-8 px-3 sm:px-4 text-xs font-semibold"
             >
               {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Carregar"}
             </Button>
           </form>
 
-          <div className="flex items-center gap-2 mt-3">
+          {/* Language + translate */}
+          <div className="flex items-center gap-2 mt-2.5">
             <Select value={language} onValueChange={setLanguage}>
-              <SelectTrigger className="w-[160px] h-8 text-xs rounded-lg bg-card border-border/60">
+              <SelectTrigger className="w-[140px] sm:w-[160px] h-8 text-xs rounded-lg bg-card border-border/60">
                 <Globe className="h-3 w-3 mr-1.5 text-muted-foreground" />
                 <SelectValue />
               </SelectTrigger>
@@ -138,16 +216,16 @@ const Index = () => {
                 disabled={isTranslating}
                 className="h-8 rounded-lg text-xs border-border/60"
               >
-                {isTranslating ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : <Globe className="h-3 w-3 mr-1.5" />}
+                {isTranslating ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Globe className="h-3 w-3 mr-1" />}
                 Retraduzir
               </Button>
             )}
           </div>
 
-          {/* TTS Settings */}
+          {/* Settings panel */}
           {showSettings && (
             <div className="mt-3 p-4 rounded-xl border border-border/60 bg-card space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Configurações de Voz</p>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Voz (TTS)</p>
               <div className="flex items-center gap-3">
                 <span className="text-xs text-muted-foreground w-10">Voz</span>
                 <Select value={tts.selectedVoice} onValueChange={tts.setSelectedVoice}>
@@ -178,40 +256,86 @@ const Index = () => {
         </div>
       </header>
 
+      {/* Reading History Panel */}
+      {showHistory && (
+        <div className="mx-auto max-w-3xl px-4 sm:px-6 py-4 border-b border-border/60 bg-card/50">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold text-foreground">Histórico de Leitura</p>
+            <Button variant="ghost" size="icon" onClick={() => setShowHistory(false)} className="h-7 w-7">
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+          {history.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Nenhum capítulo lido ainda.</p>
+          ) : (
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {history.map((h) => (
+                <div
+                  key={h.id}
+                  className="flex items-center justify-between p-2.5 rounded-lg bg-background border border-border/40 hover:border-primary/30 transition-colors cursor-pointer group"
+                  onClick={() => loadChapter(h.chapter_url)}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-foreground truncate">{h.novel_title}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(h.last_read_at).toLocaleDateString('pt-BR')}
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost" size="icon"
+                    className="h-7 w-7 opacity-0 group-hover:opacity-100 text-destructive shrink-0"
+                    onClick={(e) => { e.stopPropagation(); handleDeleteHistory(h.id); }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Content */}
-      <main className="mx-auto max-w-2xl px-5 py-8 pb-28">
+      <main className="mx-auto max-w-3xl px-4 sm:px-6 py-6 sm:py-8 pb-28">
         {/* Empty State */}
         {!chapter && !isLoading && (
-          <div className="flex flex-col items-center justify-center py-24 text-center">
-            <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-primary/5 mb-6">
-              <BookOpen className="h-10 w-10 text-primary/40" />
+          <div className="flex flex-col items-center justify-center py-16 sm:py-24 text-center">
+            <div className="flex h-16 w-16 sm:h-20 sm:w-20 items-center justify-center rounded-2xl bg-primary/5 mb-5 sm:mb-6">
+              <BookOpen className="h-8 w-8 sm:h-10 sm:w-10 text-primary/40" />
             </div>
-            <h2 className="text-xl font-semibold text-foreground mb-2" style={{ fontFamily: 'var(--font-heading)' }}>
+            <h2 className="text-lg sm:text-xl font-semibold text-foreground mb-2" style={{ fontFamily: 'var(--font-heading)' }}>
               Comece a ler
             </h2>
             <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
-              Cole o link de um capítulo de novel acima para carregar, traduzir e ouvir
+              Cole o link de um capítulo acima para carregar, traduzir e ouvir
             </p>
+            {!user && (
+              <Button
+                variant="outline"
+                onClick={() => navigate("/auth")}
+                className="mt-5 rounded-xl gap-2"
+              >
+                <LogIn className="h-4 w-4" />
+                Entre para salvar seu progresso
+              </Button>
+            )}
           </div>
         )}
 
-        {/* Loading State */}
+        {/* Loading */}
         {isLoading && (
-          <div className="flex flex-col items-center justify-center py-24">
-            <div className="relative mb-6">
-              <div className="h-12 w-12 rounded-full border-2 border-primary/20" />
-              <Loader2 className="absolute inset-0 h-12 w-12 animate-spin text-primary" />
-            </div>
+          <div className="flex flex-col items-center justify-center py-16 sm:py-24">
+            <Loader2 className="h-10 w-10 sm:h-12 sm:w-12 animate-spin text-primary mb-4" />
             <p className="text-sm text-muted-foreground">Carregando capítulo...</p>
           </div>
         )}
 
-        {/* Chapter Content */}
+        {/* Chapter */}
         {chapter && !isLoading && (
           <>
-            <header className="mb-8">
+            <header className="mb-6 sm:mb-8">
               <h2
-                className="text-2xl font-bold leading-tight text-foreground mb-2"
+                className="text-xl sm:text-2xl font-bold leading-tight text-foreground mb-2"
                 style={{ fontFamily: 'var(--font-heading)' }}
               >
                 {chapter.title}
@@ -224,29 +348,26 @@ const Index = () => {
               )}
             </header>
 
-            <article
-              className="mb-10"
-              style={{ fontFamily: 'var(--font-reading)' }}
-            >
+            <article style={{ fontFamily: 'var(--font-reading)' }}>
               {displayText.split('\n').map((paragraph, i) => (
                 paragraph.trim() ? (
-                  <p key={i} className="mb-4 text-lg leading-[1.85] text-foreground/85">
+                  <p key={i} className="mb-4 text-base sm:text-lg leading-[1.8] sm:leading-[1.85] text-foreground/85">
                     {paragraph}
                   </p>
                 ) : null
               ))}
             </article>
 
-            {/* Chapter Navigation */}
-            <nav className="flex items-center justify-between py-6 border-t border-border/60">
+            {/* Nav */}
+            <nav className="flex items-center justify-between py-5 sm:py-6 border-t border-border/60 mt-8">
               <Button
                 variant="outline"
                 onClick={() => chapter.prevChapterUrl && loadChapter(chapter.prevChapterUrl)}
                 disabled={!chapter.prevChapterUrl || isLoading}
-                className="rounded-xl border-border/60 gap-1.5"
+                className="rounded-xl border-border/60 gap-1 text-xs sm:text-sm"
               >
                 <ChevronLeft className="h-4 w-4" />
-                Anterior
+                <span className="hidden sm:inline">Anterior</span>
               </Button>
 
               <span className="text-xs text-muted-foreground">
@@ -256,9 +377,9 @@ const Index = () => {
               <Button
                 onClick={() => chapter.nextChapterUrl && loadChapter(chapter.nextChapterUrl)}
                 disabled={!chapter.nextChapterUrl || isLoading}
-                className="rounded-xl gap-1.5"
+                className="rounded-xl gap-1 text-xs sm:text-sm"
               >
-                Próximo
+                <span className="hidden sm:inline">Próximo</span>
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </nav>
@@ -266,42 +387,35 @@ const Index = () => {
         )}
       </main>
 
-      {/* TTS Floating Bar */}
+      {/* TTS Bar */}
       {chapter && displayText && (
-        <div className="fixed bottom-0 left-0 right-0 border-t border-border/60 bg-background/80 backdrop-blur-xl px-5 py-3">
-          <div className="mx-auto max-w-2xl">
-            <Progress value={tts.progress} className="mb-2.5 h-1 rounded-full" />
+        <div className="fixed bottom-0 left-0 right-0 border-t border-border/60 bg-background/80 backdrop-blur-xl px-4 sm:px-6 py-2.5 sm:py-3">
+          <div className="mx-auto max-w-3xl">
+            <Progress value={tts.progress} className="mb-2 h-1 rounded-full" />
             <div className="flex items-center justify-center gap-2">
               {!tts.isSpeaking ? (
-                <Button
-                  size="sm"
-                  onClick={() => tts.speak(displayText)}
-                  className="rounded-xl gap-2 px-5"
-                >
+                <Button size="sm" onClick={() => tts.speak(displayText)} className="rounded-xl gap-2 px-4 sm:px-5 text-xs sm:text-sm">
                   <Volume2 className="h-4 w-4" />
-                  Ouvir Capítulo
+                  <span className="hidden sm:inline">Ouvir Capítulo</span>
+                  <span className="sm:hidden">Ouvir</span>
                 </Button>
               ) : (
                 <>
                   <Button
-                    size="icon"
-                    variant="outline"
+                    size="icon" variant="outline"
                     onClick={tts.isPaused ? tts.resume : tts.pause}
-                    className="h-9 w-9 rounded-xl border-border/60"
+                    className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl border-border/60"
                   >
                     {tts.isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
                   </Button>
                   <Button
-                    size="icon"
-                    variant="ghost"
+                    size="icon" variant="ghost"
                     onClick={tts.stop}
-                    className="h-9 w-9 rounded-xl text-destructive hover:text-destructive"
+                    className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl text-destructive hover:text-destructive"
                   >
                     <Square className="h-4 w-4" />
                   </Button>
-                  <span className="text-xs text-muted-foreground ml-2">
-                    {Math.round(tts.progress)}%
-                  </span>
+                  <span className="text-xs text-muted-foreground ml-1">{Math.round(tts.progress)}%</span>
                 </>
               )}
             </div>
