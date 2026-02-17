@@ -425,25 +425,74 @@ const Index = () => {
       <main className="mx-auto max-w-3xl px-4 sm:px-6 py-6 sm:py-8 pb-32">
         {/* Empty State */}
         {!chapter && !isLoading && (
-          <div className="flex flex-col items-center justify-center py-16 sm:py-24 text-center">
-            <div className="flex h-16 w-16 sm:h-20 sm:w-20 items-center justify-center rounded-2xl bg-primary/5 mb-5 sm:mb-6">
-              <BookOpen className="h-8 w-8 sm:h-10 sm:w-10 text-primary/40" />
-            </div>
-            <h2 className="text-lg sm:text-xl font-semibold text-foreground mb-2" style={{ fontFamily: 'var(--font-heading)' }}>
-              Comece a ler
-            </h2>
-            <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
-              Cole o link de um capítulo acima para carregar, traduzir e ouvir
-            </p>
-            {!user && (
-              <Button
-                variant="outline"
-                onClick={() => navigate("/auth")}
-                className="mt-5 rounded-xl gap-2"
-              >
-                <LogIn className="h-4 w-4" />
-                Entre para salvar seu progresso
-              </Button>
+          <div className="py-8 sm:py-12">
+            {/* Recent novels for logged-in users */}
+            {user && history.length > 0 ? (() => {
+              // Group by novel, keep only latest chapter per novel
+              const novelMap = new Map<string, HistoryEntry>();
+              history.forEach((h) => {
+                const existing = novelMap.get(h.novel_url);
+                if (!existing || new Date(h.last_read_at) > new Date(existing.last_read_at)) {
+                  novelMap.set(h.novel_url, h);
+                }
+              });
+              const novels = Array.from(novelMap.values())
+                .sort((a, b) => new Date(b.last_read_at).getTime() - new Date(a.last_read_at).getTime());
+
+              return (
+                <div>
+                  <h2 className="text-lg font-semibold text-foreground mb-4" style={{ fontFamily: 'var(--font-heading)' }}>
+                    Continuar lendo
+                  </h2>
+                  <div className="space-y-3">
+                    {novels.map((novel) => (
+                      <div
+                        key={novel.novel_url}
+                        className="flex items-center gap-4 p-4 rounded-2xl bg-card border border-border/60 hover:border-primary/40 hover:shadow-md transition-all cursor-pointer group"
+                        onClick={() => loadChapter(novel.chapter_url)}
+                      >
+                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 group-hover:bg-primary/15 transition-colors">
+                          <BookOpen className="h-5 w-5 text-primary" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold text-foreground truncate">{novel.novel_title}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {novel.chapter_title && (
+                              <span className="text-foreground/60">{novel.chapter_title}</span>
+                            )}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+                            {new Date(novel.last_read_at).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground/40 group-hover:text-primary transition-colors shrink-0" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })() : (
+              <div className="flex flex-col items-center justify-center py-8 sm:py-16 text-center">
+                <div className="flex h-16 w-16 sm:h-20 sm:w-20 items-center justify-center rounded-2xl bg-primary/5 mb-5 sm:mb-6">
+                  <BookOpen className="h-8 w-8 sm:h-10 sm:w-10 text-primary/40" />
+                </div>
+                <h2 className="text-lg sm:text-xl font-semibold text-foreground mb-2" style={{ fontFamily: 'var(--font-heading)' }}>
+                  Comece a ler
+                </h2>
+                <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
+                  Cole o link de um capítulo acima para carregar, traduzir e ouvir
+                </p>
+                {!user && (
+                  <Button
+                    variant="outline"
+                    onClick={() => navigate("/auth")}
+                    className="mt-5 rounded-xl gap-2"
+                  >
+                    <LogIn className="h-4 w-4" />
+                    Entre para salvar seu progresso
+                  </Button>
+                )}
+              </div>
             )}
           </div>
         )}
