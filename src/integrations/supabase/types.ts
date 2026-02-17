@@ -14,7 +14,60 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      profiles: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      reading_history: {
+        Row: {
+          chapter_title: string | null
+          chapter_url: string
+          id: string
+          last_read_at: string
+          novel_title: string
+          novel_url: string
+          user_id: string
+        }
+        Insert: {
+          chapter_title?: string | null
+          chapter_url: string
+          id?: string
+          last_read_at?: string
+          novel_title: string
+          novel_url: string
+          user_id: string
+        }
+        Update: {
+          chapter_title?: string | null
+          chapter_url?: string
+          id?: string
+          last_read_at?: string
+          novel_title?: string
+          novel_url?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
