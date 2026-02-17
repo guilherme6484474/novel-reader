@@ -462,9 +462,16 @@ const Index = () => {
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-semibold text-foreground truncate">{novel.novel_title}</p>
                           <p className="text-xs text-muted-foreground mt-1">
-                            {novel.chapter_title && (
-                              <span className="text-foreground/60">{novel.chapter_title}</span>
-                            )}
+                            <span className="text-foreground/60">
+                              {(() => {
+                                // Show chapter info: prefer chapter_title if different from novel_title, else extract from URL
+                                if (novel.chapter_title && novel.chapter_title !== novel.novel_title) {
+                                  return novel.chapter_title;
+                                }
+                                const match = novel.chapter_url.match(/chapter[_-]?(\d+)/i);
+                                return match ? `Capítulo ${match[1]}` : 'Último capítulo';
+                              })()}
+                            </span>
                           </p>
                           <p className="text-[11px] text-muted-foreground/70 mt-0.5">
                             {new Date(novel.last_read_at).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
