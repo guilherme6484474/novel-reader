@@ -160,9 +160,14 @@ const Index = () => {
       setDisplayText(data.content);
       setIsLoading(false);
 
-      // Save progress
+      // Save progress — extract novel name from URL slug
       if (user) {
-        saveReadingProgress(user.id, chapterUrl, data.title, chapterUrl, data.title);
+        const urlObj = new URL(chapterUrl);
+        const pathParts = urlObj.pathname.split('/').filter(Boolean);
+        // Typically: /novel/novel-slug/chapter-xxx — use novel slug
+        const novelSlug = pathParts.length >= 2 ? pathParts[pathParts.length - 2] : pathParts[0] || 'unknown';
+        const novelName = novelSlug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        saveReadingProgress(user.id, chapterUrl, novelName, chapterUrl, data.title);
         getReadingHistory(user.id).then(setHistory);
       }
 
