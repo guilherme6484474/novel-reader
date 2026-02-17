@@ -10,6 +10,7 @@ export function useTTS() {
   const [activeCharIndex, setActiveCharIndex] = useState(-1);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const textRef = useRef("");
+  const onEndCallbackRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const loadVoices = () => {
@@ -24,6 +25,10 @@ export function useTTS() {
     speechSynthesis.onvoiceschanged = loadVoices;
     return () => { speechSynthesis.onvoiceschanged = null; };
   }, [selectedVoice]);
+
+  const setOnEnd = useCallback((cb: (() => void) | null) => {
+    onEndCallbackRef.current = cb;
+  }, []);
 
   const speakFromIndex = useCallback((text: string, startCharIndex = 0) => {
     speechSynthesis.cancel();
@@ -47,6 +52,7 @@ export function useTTS() {
       setIsPaused(false);
       setProgress(100);
       setActiveCharIndex(-1);
+      onEndCallbackRef.current?.();
     };
     utterance.onerror = () => {
       setIsSpeaking(false);
@@ -86,6 +92,6 @@ export function useTTS() {
   return {
     isSpeaking, isPaused, progress, voices, selectedVoice,
     rate, setRate, setSelectedVoice, speak, speakFromIndex, pause, resume, stop,
-    activeCharIndex,
+    activeCharIndex, setOnEnd,
   };
 }
