@@ -42,21 +42,17 @@ const Index = () => {
       const data = await scrapeChapter(chapterUrl);
       setChapter(data);
       setUrl(chapterUrl);
+      setDisplayText(data.content); // Show original immediately
+      setIsLoading(false);
 
-      // Auto-translate
+      // Translate in background
       setIsTranslating(true);
-      try {
-        const translated = await translateChapter(data.content, language);
-        setDisplayText(translated);
-      } catch (err: any) {
-        toast.error("Erro na tradução: " + err.message);
-        setDisplayText(data.content);
-      } finally {
-        setIsTranslating(false);
-      }
+      translateChapter(data.content, language)
+        .then((translated) => setDisplayText(translated))
+        .catch((err: any) => toast.error("Erro na tradução: " + err.message))
+        .finally(() => setIsTranslating(false));
     } catch (err: any) {
       toast.error("Erro ao carregar: " + err.message);
-    } finally {
       setIsLoading(false);
     }
   };
