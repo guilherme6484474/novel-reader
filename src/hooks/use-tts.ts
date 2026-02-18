@@ -124,9 +124,9 @@ export function useTTS() {
     const words = buildWordMap(chunkText);
     if (words.length === 0) return;
 
-    // Calibrated: ~7 chars/sec at rate 1.0 (~420 chars/min)
+    // Calibrated: ~5 chars/sec at rate 1.0 (~300 chars/min)
     // Tuned for mobile TTS voices
-    const msPerChar = (1000 / 7) / speechRate;
+    const msPerChar = (1000 / 5) / speechRate;
     
     let wordIdx = 0;
     chunkStartTimeRef.current = performance.now();
