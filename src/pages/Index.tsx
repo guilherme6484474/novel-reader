@@ -5,6 +5,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { useTTS } from "@/hooks/use-tts";
+import { usePwaInstall } from "@/hooks/use-pwa-install";
 import { scrapeChapter, translateChapterStream, type ChapterData } from "@/lib/api/novel";
 import { saveReadingProgress, getReadingHistory, deleteReadingEntry } from "@/lib/api/reading-history";
 import { useAuth } from "@/contexts/AuthContext";
@@ -13,7 +14,7 @@ import {
   BookOpen, ChevronLeft, ChevronRight, Globe, Loader2,
   Pause, Play, Square, Volume2, Settings2, Search,
   Moon, Sun, LogIn, LogOut, History, X, Trash2, Minus, Plus, Type,
-  RefreshCw,
+  RefreshCw, Download,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
@@ -133,6 +134,7 @@ const Index = () => {
   const [autoRead, setAutoRead] = useState(() => localStorage.getItem('nr-autoRead') === 'true');
   const autoReadRef = useRef(autoRead);
   const tts = useTTS();
+  const pwa = usePwaInstall();
   const { theme, setTheme } = useTheme();
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
@@ -274,6 +276,16 @@ const Index = () => {
               </h1>
             </div>
             <div className="flex items-center gap-1">
+              {pwa.canInstall && (
+                <Button
+                  variant="ghost" size="icon"
+                  onClick={pwa.install}
+                  className="h-8 w-8 rounded-lg text-primary hover:text-primary"
+                  title="Instalar app"
+                >
+                  <Download className="h-4 w-4" />
+                </Button>
+              )}
               {user && (
                 <Button
                   variant="ghost" size="icon"
