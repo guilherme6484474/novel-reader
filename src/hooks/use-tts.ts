@@ -64,6 +64,7 @@ export function useTTS() {
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedVoice, setSelectedVoice] = useState<string>(() => localStorage.getItem('nr-ttsVoice') || "");
   const [rate, setRate] = useState(() => Number(localStorage.getItem('nr-ttsRate')) || 1);
+  const [pitch, setPitch] = useState(() => Number(localStorage.getItem('nr-ttsPitch')) || 1);
   const [activeCharIndex, setActiveCharIndex] = useState(-1);
 
   const onEndCallbackRef = useRef<(() => void) | null>(null);
@@ -81,10 +82,12 @@ export function useTTS() {
   const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
   const selectedVoiceRef = useRef(selectedVoice);
   const rateRef = useRef(rate);
+  const pitchRef = useRef(pitch);
 
   useEffect(() => { voicesRef.current = voices; }, [voices]);
   useEffect(() => { selectedVoiceRef.current = selectedVoice; }, [selectedVoice]);
   useEffect(() => { rateRef.current = rate; }, [rate]);
+  useEffect(() => { pitchRef.current = pitch; }, [pitch]);
 
   useEffect(() => {
     const loadVoices = () => {
@@ -121,9 +124,9 @@ export function useTTS() {
     const words = buildWordMap(chunkText);
     if (words.length === 0) return;
 
-    // Calibrated: ~11 chars/sec at rate 1.0 (~660 chars/min)
-    // Tuned for mobile TTS voices which speak slower
-    const msPerChar = (1000 / 11) / speechRate;
+    // Calibrated: ~9 chars/sec at rate 1.0 (~540 chars/min)
+    // Tuned for mobile TTS voices which speak notably slower
+    const msPerChar = (1000 / 9) / speechRate;
     
     let wordIdx = 0;
     chunkStartTimeRef.current = performance.now();
@@ -185,7 +188,7 @@ export function useTTS() {
     const voice = voicesRef.current.find(v => v.name === selectedVoiceRef.current);
     if (voice) utterance.voice = voice;
     utterance.rate = rateRef.current;
-
+    utterance.pitch = pitchRef.current;
     utterance.onboundary = (e) => {
       if (e.name === 'word') {
         if (!boundaryFiredRef.current) {
@@ -293,7 +296,7 @@ export function useTTS() {
 
   return {
     isSpeaking, isPaused, progress, voices, selectedVoice,
-    rate, setRate, setSelectedVoice, speak, speakFromIndex, pause, resume, stop,
+    rate, setRate, pitch, setPitch, setSelectedVoice, speak, speakFromIndex, pause, resume, stop,
     activeCharIndex, setOnEnd,
   };
 }
