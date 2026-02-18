@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 
-const MAX_CHUNK_CHARS = 300;
+const MAX_CHUNK_CHARS = 80;
 
 function splitIntoSentences(text: string): string[] {
   const parts: string[] = [];
