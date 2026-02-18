@@ -79,7 +79,7 @@ export function useTTS() {
   const wordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rafRef = useRef<number | null>(null);
   const chunkStartTimeRef = useRef(0);
-  const calibratedCpsRef = useRef(0); // chars per second, 0 = not yet calibrated
+  const calibratedCpsRef = useRef(Number(localStorage.getItem('nr-ttsCps')) || 0);
 
   const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
   const selectedVoiceRef = useRef(selectedVoice);
@@ -217,6 +217,15 @@ export function useTTS() {
       }
     };
 
+    utterance.onstart = () => {
+      if (cancelingRef.current) return;
+      chunkStartTimeRef.current = performance.now();
+      // Start fallback stepper on actual speech start (not after arbitrary delay)
+      if (!boundaryFiredRef.current && speakingRef.current) {
+        startWordStepper(chunkText, globalOffset, rateRef.current);
+      }
+    };
+
     utterance.onend = () => {
       if (cancelingRef.current) return;
       clearWordTimer();
@@ -225,10 +234,10 @@ export function useTTS() {
         const actualDurationMs = performance.now() - chunkStartTimeRef.current;
         const actualCps = chunkText.length / (actualDurationMs / 1000) / rateRef.current;
         if (actualCps > 2 && actualCps < 30) {
-          // Blend with previous calibration for stability
           calibratedCpsRef.current = calibratedCpsRef.current > 0
-            ? calibratedCpsRef.current * 0.4 + actualCps * 0.6
+            ? calibratedCpsRef.current * 0.3 + actualCps * 0.7
             : actualCps;
+          localStorage.setItem('nr-ttsCps', String(calibratedCpsRef.current));
         }
       }
       speakChunk(chunkIndex + 1);
@@ -242,13 +251,6 @@ export function useTTS() {
       setIsPaused(false);
       setActiveCharIndex(-1);
     };
-
-    // Start fallback word stepper after brief delay
-    setTimeout(() => {
-      if (!boundaryFiredRef.current && speakingRef.current && !cancelingRef.current) {
-        startWordStepper(chunkText, globalOffset, rateRef.current);
-      }
-    }, 300);
 
     speechSynthesis.speak(utterance);
   }, [clearWordTimer, updatePosition, startWordStepper]);
