@@ -5,7 +5,6 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { useTTS } from "@/hooks/use-tts";
-import { useElevenLabsTTS, ELEVENLABS_VOICES } from "@/hooks/use-elevenlabs-tts";
 import { scrapeChapter, translateChapterStream, type ChapterData } from "@/lib/api/novel";
 import { saveReadingProgress, getReadingHistory, deleteReadingEntry } from "@/lib/api/reading-history";
 import { useAuth } from "@/contexts/AuthContext";
@@ -14,7 +13,7 @@ import {
   BookOpen, ChevronLeft, ChevronRight, Globe, Loader2,
   Pause, Play, Square, Volume2, Settings2, Search,
   Moon, Sun, LogIn, LogOut, History, X, Trash2, Minus, Plus, Type,
-  RefreshCw, Sparkles,
+  RefreshCw,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
@@ -132,11 +131,8 @@ const Index = () => {
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [autoRead, setAutoRead] = useState(() => localStorage.getItem('nr-autoRead') === 'true');
-  const [ttsEngine, setTtsEngine] = useState<'native' | 'elevenlabs'>(() => (localStorage.getItem('nr-ttsEngine') as any) || 'native');
   const autoReadRef = useRef(autoRead);
   const tts = useTTS();
-  const elTts = useElevenLabsTTS();
-  const activeTts = ttsEngine === 'elevenlabs' ? elTts : tts;
   const { theme, setTheme } = useTheme();
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
@@ -152,8 +148,6 @@ const Index = () => {
   useEffect(() => { localStorage.setItem('nr-ttsRate', String(tts.rate)); }, [tts.rate]);
   useEffect(() => { localStorage.setItem('nr-ttsVoice', tts.selectedVoice); }, [tts.selectedVoice]);
   useEffect(() => { localStorage.setItem('nr-autoRead', String(autoRead)); }, [autoRead]);
-  useEffect(() => { localStorage.setItem('nr-ttsEngine', ttsEngine); }, [ttsEngine]);
-  useEffect(() => { localStorage.setItem('nr-elVoice', elTts.selectedVoice); }, [elTts.selectedVoice]);
 
   // Load TTS preferences on mount
   useEffect(() => {
@@ -171,13 +165,8 @@ const Index = () => {
         loadChapter(chapterRef.current.nextChapterUrl);
       }
     });
-    elTts.setOnEnd(() => {
-      if (autoReadRef.current && chapterRef.current?.nextChapterUrl) {
-        loadChapter(chapterRef.current.nextChapterUrl);
-      }
-    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tts.setOnEnd, elTts.setOnEnd]);
+  }, [tts.setOnEnd]);
 
   useEffect(() => {
     if (user) {
@@ -188,7 +177,6 @@ const Index = () => {
   const loadChapter = async (chapterUrl: string) => {
     setIsLoading(true);
     tts.stop();
-    elTts.stop();
     setShowHistory(false);
     try {
       const data = await scrapeChapter(chapterUrl);
@@ -223,7 +211,7 @@ const Index = () => {
           cancelAnimationFrame(rafId);
           setDisplayText(streamedText);
           if (autoReadRef.current) {
-            setTimeout(() => activeTts.speak(streamedText), 300);
+            setTimeout(() => tts.speak(streamedText), 300);
           }
         })
         .catch((err: any) => toast.error("Erro na tradução: " + err.message))
@@ -244,7 +232,7 @@ const Index = () => {
     if (!chapter) return;
     setIsTranslating(true);
     tts.stop();
-    elTts.stop();
+    tts.stop();
     try {
       setDisplayText("");
       let streamedText = "";
@@ -413,79 +401,31 @@ const Index = () => {
               </div>
               <div>
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Voz (TTS)</p>
-                <div className="flex items-center gap-3 mb-2">
-                  <span className="text-xs text-muted-foreground w-10">Motor</span>
-                  <div className="flex gap-1 flex-1">
-                    <Button
-                      size="sm"
-                      variant={ttsEngine === 'native' ? 'default' : 'outline'}
-                      onClick={() => { activeTts.stop(); setTtsEngine('native'); }}
-                      className="h-7 rounded-lg text-xs flex-1"
-                    >
-                      Nativo
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={ttsEngine === 'elevenlabs' ? 'default' : 'outline'}
-                      onClick={() => { activeTts.stop(); setTtsEngine('elevenlabs'); }}
-                      className="h-7 rounded-lg text-xs flex-1 gap-1"
-                    >
-                      <Sparkles className="h-3 w-3" />
-                      ElevenLabs
-                    </Button>
-                  </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-muted-foreground w-10">Voz</span>
+                  <Select value={tts.selectedVoice} onValueChange={tts.setSelectedVoice}>
+                    <SelectTrigger className="h-8 text-xs flex-1 rounded-lg bg-background">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {tts.voices.map((v) => (
+                        <SelectItem key={v.name} value={v.name}>
+                          {v.name} ({v.lang})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-
-                {ttsEngine === 'native' ? (
-                  <>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs text-muted-foreground w-10">Voz</span>
-                      <Select value={tts.selectedVoice} onValueChange={tts.setSelectedVoice}>
-                        <SelectTrigger className="h-8 text-xs flex-1 rounded-lg bg-background">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {tts.voices.map((v) => (
-                            <SelectItem key={v.name} value={v.name}>
-                              {v.name} ({v.lang})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex items-center gap-3 mt-2">
-                      <span className="text-xs text-muted-foreground w-10">Vel.</span>
-                      <Slider
-                        value={[tts.rate]}
-                        onValueChange={([v]) => tts.setRate(v)}
-                        min={0.5} max={2} step={0.1}
-                        className="flex-1"
-                      />
-                      <span className="text-xs font-medium text-foreground w-10 text-right">{tts.rate}x</span>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs text-muted-foreground w-10">Voz</span>
-                      <Select value={elTts.selectedVoice} onValueChange={elTts.setSelectedVoice}>
-                        <SelectTrigger className="h-8 text-xs flex-1 rounded-lg bg-background">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ELEVENLABS_VOICES.map((v) => (
-                            <SelectItem key={v.id} value={v.id}>
-                              {v.name} ({v.lang})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <p className="text-[10px] text-muted-foreground/70 mt-2">
-                      ✨ Vozes premium com qualidade natural. Consome créditos do ElevenLabs.
-                    </p>
-                  </>
-                )}
+                <div className="flex items-center gap-3 mt-2">
+                  <span className="text-xs text-muted-foreground w-10">Vel.</span>
+                  <Slider
+                    value={[tts.rate]}
+                    onValueChange={([v]) => tts.setRate(v)}
+                    min={0.5} max={2} step={0.1}
+                    className="flex-1"
+                  />
+                  <span className="text-xs font-medium text-foreground w-10 text-right">{tts.rate}x</span>
+                </div>
               </div>
             </div>
           )}
@@ -653,9 +593,9 @@ const Index = () => {
 
             <ChapterArticle
               displayText={displayText}
-              activeCharIndex={ttsEngine === 'native' ? tts.activeCharIndex : -1}
-              isSpeaking={ttsEngine === 'native' ? tts.isSpeaking : false}
-              onClickWord={(charIndex) => ttsEngine === 'native' ? tts.speakFromIndex(displayText, charIndex) : activeTts.speak(displayText)}
+              activeCharIndex={tts.activeCharIndex}
+              isSpeaking={tts.isSpeaking}
+              onClickWord={(charIndex) => tts.speakFromIndex(displayText, charIndex)}
               fontSize={fontSize}
             />
 
@@ -692,7 +632,7 @@ const Index = () => {
       {chapter && displayText && (
         <div className="fixed bottom-0 left-0 right-0 border-t border-border/60 bg-background/80 backdrop-blur-xl px-4 sm:px-6 py-2.5 sm:py-3">
           <div className="mx-auto max-w-3xl">
-            <Progress value={activeTts.progress} className="mb-2 h-1 rounded-full" />
+            <Progress value={tts.progress} className="mb-2 h-1 rounded-full" />
             <div className="flex items-center justify-center gap-2">
               {/* Auto-read toggle */}
               <Button
@@ -706,35 +646,29 @@ const Index = () => {
                 <span className="hidden sm:inline">Auto</span>
               </Button>
 
-              {!activeTts.isSpeaking && !(ttsEngine === 'elevenlabs' && elTts.isLoading) ? (
-                <Button size="sm" onClick={() => { activeTts.speak(displayText); }} className="rounded-xl gap-2 px-4 sm:px-5 text-xs sm:text-sm">
-                  {ttsEngine === 'elevenlabs' ? <Sparkles className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+              {!tts.isSpeaking ? (
+                <Button size="sm" onClick={() => { tts.speak(displayText); }} className="rounded-xl gap-2 px-4 sm:px-5 text-xs sm:text-sm">
+                  <Volume2 className="h-4 w-4" />
                   <span className="hidden sm:inline">Ouvir Capítulo</span>
                   <span className="sm:hidden">Ouvir</span>
-                </Button>
-              ) : ttsEngine === 'elevenlabs' && elTts.isLoading ? (
-                <Button size="sm" disabled className="rounded-xl gap-2 px-4 sm:px-5 text-xs sm:text-sm">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="hidden sm:inline">Gerando áudio...</span>
-                  <span className="sm:hidden">Gerando...</span>
                 </Button>
               ) : (
                 <>
                   <Button
                     size="icon" variant="outline"
-                    onClick={activeTts.isPaused ? activeTts.resume : activeTts.pause}
+                    onClick={tts.isPaused ? tts.resume : tts.pause}
                     className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl border-border/60"
                   >
-                    {activeTts.isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                    {tts.isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
                   </Button>
                   <Button
                     size="icon" variant="ghost"
-                    onClick={() => { activeTts.stop(); setAutoRead(false); }}
+                    onClick={() => { tts.stop(); setAutoRead(false); }}
                     className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl text-destructive hover:text-destructive"
                   >
                     <Square className="h-4 w-4" />
                   </Button>
-                  <span className="text-xs text-muted-foreground ml-1">{Math.round(activeTts.progress)}%</span>
+                  <span className="text-xs text-muted-foreground ml-1">{Math.round(tts.progress)}%</span>
                 </>
               )}
             </div>
