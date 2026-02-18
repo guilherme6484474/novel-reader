@@ -1,44 +1,55 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 
-// Mobile browsers cut speech at ~200-300 words. We chunk at sentence boundaries.
-const MAX_CHUNK_CHARS = 800;
+// On mobile, onboundary doesn't fire, so we use small sentence-level chunks
+// to track position accurately via onend of each chunk.
+const MAX_CHUNK_CHARS = 300;
 
-function splitIntoChunks(text: string): string[] {
-  if (text.length <= MAX_CHUNK_CHARS) return [text];
+function splitIntoSentences(text: string): string[] {
+  // Split at sentence boundaries, keeping delimiters
+  const parts: string[] = [];
+  const regex = /[^.!?\n]+[.!?\n]+\s*/g;
+  let match: RegExpExecArray | null;
+  let lastIndex = 0;
 
-  const chunks: string[] = [];
-  let remaining = text;
+  while ((match = regex.exec(text)) !== null) {
+    parts.push(match[0]);
+    lastIndex = regex.lastIndex;
+  }
+  // Remaining text
+  if (lastIndex < text.length) {
+    const remainder = text.slice(lastIndex);
+    if (remainder.trim()) parts.push(remainder);
+  }
 
-  while (remaining.length > 0) {
-    if (remaining.length <= MAX_CHUNK_CHARS) {
-      chunks.push(remaining);
-      break;
-    }
-    // Find last sentence boundary within limit
-    let splitAt = -1;
-    const searchRegion = remaining.slice(0, MAX_CHUNK_CHARS);
-    // Prefer splitting at sentence-ending punctuation
-    for (const sep of ['. ', '! ', '? ', '.\n', '!\n', '?\n']) {
-      const idx = searchRegion.lastIndexOf(sep);
-      if (idx > splitAt) splitAt = idx + sep.length;
-    }
-    // Fallback to comma/semicolon
-    if (splitAt <= 0) {
-      for (const sep of [', ', '; ', ',\n']) {
-        const idx = searchRegion.lastIndexOf(sep);
-        if (idx > splitAt) splitAt = idx + sep.length;
+  if (parts.length === 0 && text.trim()) return [text];
+
+  // Merge very short sentences, split very long ones
+  const merged: string[] = [];
+  let buffer = "";
+  for (const part of parts) {
+    if (buffer.length + part.length <= MAX_CHUNK_CHARS) {
+      buffer += part;
+    } else {
+      if (buffer) merged.push(buffer);
+      // If single sentence is too long, split at commas/spaces
+      if (part.length > MAX_CHUNK_CHARS) {
+        let remaining = part;
+        while (remaining.length > MAX_CHUNK_CHARS) {
+          let splitAt = remaining.lastIndexOf(', ', MAX_CHUNK_CHARS);
+          if (splitAt <= 0) splitAt = remaining.lastIndexOf(' ', MAX_CHUNK_CHARS);
+          if (splitAt <= 0) splitAt = MAX_CHUNK_CHARS;
+          else splitAt += 1; // include the space
+          merged.push(remaining.slice(0, splitAt));
+          remaining = remaining.slice(splitAt);
+        }
+        buffer = remaining;
+      } else {
+        buffer = part;
       }
     }
-    // Last resort: split at space
-    if (splitAt <= 0) {
-      splitAt = searchRegion.lastIndexOf(' ');
-    }
-    if (splitAt <= 0) splitAt = MAX_CHUNK_CHARS;
-
-    chunks.push(remaining.slice(0, splitAt));
-    remaining = remaining.slice(splitAt);
   }
-  return chunks;
+  if (buffer) merged.push(buffer);
+  return merged;
 }
 
 export function useTTS() {
@@ -50,18 +61,14 @@ export function useTTS() {
   const [rate, setRate] = useState(() => Number(localStorage.getItem('nr-ttsRate')) || 1);
   const [activeCharIndex, setActiveCharIndex] = useState(-1);
 
-  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
-  const textRef = useRef("");
   const onEndCallbackRef = useRef<(() => void) | null>(null);
   const cancelingRef = useRef(false);
   const chunksRef = useRef<string[]>([]);
+  const chunkOffsetsRef = useRef<number[]>([]); // global char offset per chunk
   const currentChunkRef = useRef(0);
-  const chunkOffsetRef = useRef(0); // global char offset of current chunk
-  const startCharRef = useRef(0);
-  const boundaryFiredRef = useRef(false);
-  const wordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const textRef = useRef("");
+  const speakingRef = useRef(false);
 
-  // Refs for latest values
   const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
   const selectedVoiceRef = useRef(selectedVoice);
   const rateRef = useRef(rate);
@@ -87,131 +94,92 @@ export function useTTS() {
     return () => { speechSynthesis.onvoiceschanged = null; };
   }, []);
 
-  const clearWordTimer = useCallback(() => {
-    if (wordTimerRef.current) {
-      clearInterval(wordTimerRef.current);
-      wordTimerRef.current = null;
-    }
-  }, []);
-
-  // Fallback word tracking for mobile (when onboundary doesn't fire)
-  const startFallbackWordTracking = useCallback((text: string, globalOffset: number, speechRate: number) => {
-    clearWordTimer();
-    const words = text.split(/\s+/).filter(Boolean);
-    if (words.length === 0) return;
-
-    // Estimate ~150 words per minute at rate 1.0
-    const msPerWord = (60000 / 150) / speechRate;
-    let wordIdx = 0;
-    let charPos = 0;
-
-    wordTimerRef.current = setInterval(() => {
-      if (wordIdx >= words.length) {
-        clearWordTimer();
-        return;
-      }
-      // Find position of current word
-      const wordStart = text.indexOf(words[wordIdx], charPos);
-      if (wordStart >= 0) {
-        charPos = wordStart + words[wordIdx].length;
-        setActiveCharIndex(globalOffset + wordStart);
-        const totalText = textRef.current;
-        if (totalText.length > 0) {
-          setProgress(((globalOffset + wordStart) / totalText.length) * 100);
-        }
-      }
-      wordIdx++;
-    }, msPerWord);
-  }, [clearWordTimer]);
-
   const setOnEnd = useCallback((cb: (() => void) | null) => {
     onEndCallbackRef.current = cb;
   }, []);
 
   const speakChunk = useCallback((chunkIndex: number) => {
+    if (!speakingRef.current) return;
     const chunks = chunksRef.current;
+    const offsets = chunkOffsetsRef.current;
+
     if (chunkIndex >= chunks.length) {
-      // All chunks done
+      speakingRef.current = false;
       setIsSpeaking(false);
       setIsPaused(false);
       setProgress(100);
       setActiveCharIndex(-1);
-      clearWordTimer();
       onEndCallbackRef.current?.();
       return;
     }
 
     const chunkText = chunks[chunkIndex];
-    // Calculate global offset for this chunk
-    let offset = startCharRef.current;
-    for (let i = 0; i < chunkIndex; i++) {
-      offset += chunks[i].length;
-    }
-    chunkOffsetRef.current = offset;
+    const globalOffset = offsets[chunkIndex];
     currentChunkRef.current = chunkIndex;
-    boundaryFiredRef.current = false;
+
+    // Update highlight to start of this chunk
+    setActiveCharIndex(globalOffset);
+    const totalLen = textRef.current.length;
+    if (totalLen > 0) setProgress((globalOffset / totalLen) * 100);
 
     const utterance = new SpeechSynthesisUtterance(chunkText);
     const voice = voicesRef.current.find(v => v.name === selectedVoiceRef.current);
     if (voice) utterance.voice = voice;
     utterance.rate = rateRef.current;
 
+    // Use onboundary for fine-grained tracking when available (desktop)
     utterance.onboundary = (e) => {
       if (e.name === 'word') {
-        boundaryFiredRef.current = true;
-        clearWordTimer(); // No need for fallback if native events work
-        const globalIndex = offset + e.charIndex;
-        setActiveCharIndex(globalIndex);
-        const totalLen = textRef.current.length;
-        if (totalLen > 0) setProgress((globalIndex / totalLen) * 100);
+        const gi = globalOffset + e.charIndex;
+        setActiveCharIndex(gi);
+        if (totalLen > 0) setProgress((gi / totalLen) * 100);
       }
     };
 
     utterance.onend = () => {
       if (cancelingRef.current) return;
-      clearWordTimer();
-      // Speak next chunk
       speakChunk(chunkIndex + 1);
     };
 
     utterance.onerror = (e) => {
       if (cancelingRef.current || e.error === 'canceled' || e.error === 'interrupted') return;
-      clearWordTimer();
+      speakingRef.current = false;
       setIsSpeaking(false);
       setIsPaused(false);
       setActiveCharIndex(-1);
     };
 
-    // Start fallback word tracking after a short delay (if onboundary doesn't fire)
-    setTimeout(() => {
-      if (!boundaryFiredRef.current && !cancelingRef.current) {
-        startFallbackWordTracking(chunkText, offset, rateRef.current);
-      }
-    }, 500);
-
-    utteranceRef.current = utterance;
     speechSynthesis.speak(utterance);
-  }, [clearWordTimer, startFallbackWordTracking]);
+  }, []);
 
   const speakFromIndex = useCallback((text: string, startCharIndex = 0) => {
     cancelingRef.current = true;
     speechSynthesis.cancel();
-    clearWordTimer();
     cancelingRef.current = false;
 
     const textToSpeak = text.slice(startCharIndex);
     textRef.current = text;
-    startCharRef.current = startCharIndex;
 
-    // Split into mobile-safe chunks
-    chunksRef.current = splitIntoChunks(textToSpeak);
+    // Split into sentence-level chunks
+    const chunks = splitIntoSentences(textToSpeak);
+    chunksRef.current = chunks;
 
+    // Pre-compute global offsets
+    const offsets: number[] = [];
+    let offset = startCharIndex;
+    for (const chunk of chunks) {
+      offsets.push(offset);
+      offset += chunk.length;
+    }
+    chunkOffsetsRef.current = offsets;
+
+    speakingRef.current = true;
     setIsSpeaking(true);
     setIsPaused(false);
     setActiveCharIndex(startCharIndex);
 
     speakChunk(0);
-  }, [speakChunk, clearWordTimer]);
+  }, [speakChunk]);
 
   const speak = useCallback((text: string) => {
     speakFromIndex(text, 0);
@@ -219,33 +187,26 @@ export function useTTS() {
 
   const pause = useCallback(() => {
     speechSynthesis.pause();
-    clearWordTimer();
     setIsPaused(true);
-  }, [clearWordTimer]);
+  }, []);
 
   const resume = useCallback(() => {
     speechSynthesis.resume();
     setIsPaused(false);
-    // Restart fallback tracking if needed
-    if (!boundaryFiredRef.current) {
-      const chunk = chunksRef.current[currentChunkRef.current];
-      if (chunk) {
-        startFallbackWordTracking(chunk, chunkOffsetRef.current, rateRef.current);
-      }
-    }
-  }, [startFallbackWordTracking]);
+  }, []);
 
   const stop = useCallback(() => {
     cancelingRef.current = true;
+    speakingRef.current = false;
     speechSynthesis.cancel();
-    clearWordTimer();
     cancelingRef.current = false;
     chunksRef.current = [];
+    chunkOffsetsRef.current = [];
     setIsSpeaking(false);
     setIsPaused(false);
     setProgress(0);
     setActiveCharIndex(-1);
-  }, [clearWordTimer]);
+  }, []);
 
   return {
     isSpeaking, isPaused, progress, voices, selectedVoice,
