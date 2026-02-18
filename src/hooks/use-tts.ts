@@ -121,11 +121,9 @@ export function useTTS() {
     const words = buildWordMap(chunkText);
     if (words.length === 0) return;
 
-    // Average speaking rate: ~170 words/min at rate 1.0
-    // But varies by word length, so weight by character count
-    const totalChars = chunkText.replace(/\s+/g, '').length;
-    // ~900 chars/min at rate 1.0 for Portuguese/English
-    const msPerChar = (60000 / 900) / speechRate;
+    // Calibrated: ~13 chars/sec at rate 1.0 (~780 chars/min)
+    // Mobile TTS tends to be slightly slower than desktop
+    const msPerChar = (1000 / 13) / speechRate;
     
     let wordIdx = 0;
     chunkStartTimeRef.current = performance.now();
