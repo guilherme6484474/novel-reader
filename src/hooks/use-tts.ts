@@ -121,9 +121,9 @@ export function useTTS() {
     const words = buildWordMap(chunkText);
     if (words.length === 0) return;
 
-    // Calibrated: ~13 chars/sec at rate 1.0 (~780 chars/min)
-    // Mobile TTS tends to be slightly slower than desktop
-    const msPerChar = (1000 / 13) / speechRate;
+    // Calibrated: ~11 chars/sec at rate 1.0 (~660 chars/min)
+    // Tuned for mobile TTS voices which speak slower
+    const msPerChar = (1000 / 11) / speechRate;
     
     let wordIdx = 0;
     chunkStartTimeRef.current = performance.now();
