@@ -55,7 +55,7 @@ const ChapterArticle = memo(function ChapterArticle({
   fontSize: number;
 }) {
   const activeRef = useRef<HTMLSpanElement>(null);
-
+  const prevParaCountRef = useRef(0);
   useEffect(() => {
     if (activeRef.current && isSpeaking) {
       activeRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -74,10 +74,16 @@ const ChapterArticle = memo(function ChapterArticle({
     return result;
   }, [displayText]);
 
+  const prevParaCount = prevParaCountRef.current;
+  useEffect(() => { prevParaCountRef.current = paragraphs.length; }, [paragraphs.length]);
+
   return (
     <article style={{ fontFamily: 'var(--font-reading)', fontSize: `${fontSize}px` }}>
       {paragraphs.map((para, pi) => (
-        <p key={pi} className="mb-4 leading-[1.85] text-foreground/85">
+        <p
+          key={pi}
+          className={`mb-4 leading-[1.85] text-foreground/85 ${pi >= prevParaCount ? 'animate-fade-in' : ''}`}
+        >
           {para.text.split(/(\s+)/).map((word, wi) => {
             // Calculate this word's global char index
             const localOffset = para.text.indexOf(word, 
