@@ -46,7 +46,6 @@ function splitIntoSentences(text: string): string[] {
   return merged;
 }
 
-// Build word map: [{word, startIndex}] for a given text
 function buildWordMap(text: string): { word: string; start: number }[] {
   const words: { word: string; start: number }[] = [];
   const regex = /\S+/g;
@@ -55,44 +54,6 @@ function buildWordMap(text: string): { word: string; start: number }[] {
     words.push({ word: m[0], start: m.index });
   }
   return words;
-}
-
-// Create a silent audio context to keep audio session alive on mobile
-function createSilentAudio(): HTMLAudioElement | null {
-  try {
-    // Generate a tiny silent WAV file as data URI
-    const sampleRate = 8000;
-    const numSamples = sampleRate; // 1 second of silence
-    const buffer = new ArrayBuffer(44 + numSamples * 2);
-    const view = new DataView(buffer);
-    // WAV header
-    const writeString = (offset: number, str: string) => {
-      for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
-    };
-    writeString(0, 'RIFF');
-    view.setUint32(4, 36 + numSamples * 2, true);
-    writeString(8, 'WAVE');
-    writeString(12, 'fmt ');
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, 1, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * 2, true);
-    view.setUint16(32, 2, true);
-    view.setUint16(34, 16, true);
-    writeString(36, 'data');
-    view.setUint32(40, numSamples * 2, true);
-    // samples are all 0 (silence)
-
-    const blob = new Blob([buffer], { type: 'audio/wav' });
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    audio.loop = true;
-    audio.volume = 0.01; // nearly silent
-    return audio;
-  } catch {
-    return null;
-  }
 }
 
 export function useTTS() {
@@ -105,9 +66,6 @@ export function useTTS() {
   const [pitch, setPitch] = useState(() => Number(localStorage.getItem('nr-ttsPitch')) || 1);
   const [activeCharIndex, setActiveCharIndex] = useState(-1);
 
-  const silentAudioRef = useRef<HTMLAudioElement | null>(null);
-  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
-
   const onEndCallbackRef = useRef<(() => void) | null>(null);
   const cancelingRef = useRef(false);
   const chunksRef = useRef<string[]>([]);
@@ -117,10 +75,11 @@ export function useTTS() {
   const speakingRef = useRef(false);
   const pausedRef = useRef(false);
   const boundaryFiredRef = useRef(false);
-  const wordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rafRef = useRef<number | null>(null);
   const chunkStartTimeRef = useRef(0);
+  // Store actual measured CPS (already includes rate effect) for accurate tracking
   const calibratedCpsRef = useRef(Number(localStorage.getItem('nr-ttsCps')) || 0);
+  const calibratedRateRef = useRef(Number(localStorage.getItem('nr-ttsCpsRate')) || 1);
 
   const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
   const selectedVoiceRef = useRef(selectedVoice);
@@ -148,35 +107,8 @@ export function useTTS() {
     speechSynthesis.onvoiceschanged = loadVoices;
     return () => { speechSynthesis.onvoiceschanged = null; };
   }, []);
-  // Keep audio session alive on mobile (prevents OS from suspending TTS)
-  const startKeepAlive = useCallback(async () => {
-    // Silent audio
-    if (!silentAudioRef.current) {
-      silentAudioRef.current = createSilentAudio();
-    }
-    try {
-      await silentAudioRef.current?.play();
-    } catch { /* user hasn't interacted yet, ignore */ }
-
-    // Wake Lock (keeps CPU awake)
-    try {
-      if ('wakeLock' in navigator) {
-        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
-      }
-    } catch { /* not supported or denied */ }
-  }, []);
-
-  const stopKeepAlive = useCallback(() => {
-    silentAudioRef.current?.pause();
-    wakeLockRef.current?.release().catch(() => {});
-    wakeLockRef.current = null;
-  }, []);
 
   const clearWordTimer = useCallback(() => {
-    if (wordTimerRef.current) {
-      clearTimeout(wordTimerRef.current);
-      wordTimerRef.current = null;
-    }
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
@@ -189,18 +121,26 @@ export function useTTS() {
     if (totalLen > 0) setProgress((globalCharIndex / totalLen) * 100);
   }, []);
 
+  // Estimate CPS for the current rate, using calibrated data if available
+  const estimateCps = useCallback((speechRate: number): number => {
+    if (calibratedCpsRef.current > 0) {
+      // Scale calibrated CPS proportionally to rate change
+      // TTS rate doesn't scale linearly — use sqrt for more realistic scaling
+      const rateRatio = speechRate / calibratedRateRef.current;
+      const scaledRatio = Math.pow(rateRatio, 0.85); // sub-linear scaling
+      return calibratedCpsRef.current * scaledRatio;
+    }
+    // Default: ~14 CPS at 1x, sub-linear scaling for higher rates
+    return 14 * Math.pow(speechRate, 0.85);
+  }, []);
+
   // Fallback: interpolate word position using estimated chunk duration
   const startWordStepper = useCallback((chunkText: string, globalOffset: number, speechRate: number) => {
     const words = buildWordMap(chunkText);
     if (words.length === 0) return;
 
-    // Use calibrated rate or default (~12 chars/sec at rate 1.0)
-    // TTS engines speak faster on longer text (rhythm), so boost slightly for long chunks
-    const baseCps = calibratedCpsRef.current || 12;
-    const lengthBoost = chunkText.length > 150 ? 1.08 : 1.0;
-    const cps = baseCps * speechRate * lengthBoost;
-    const totalChars = chunkText.length;
-    const estimatedDurationMs = (totalChars / cps) * 1000;
+    const cps = estimateCps(speechRate);
+    const estimatedDurationMs = (chunkText.length / cps) * 1000;
 
     // Map each word to a fractional position [0, 1] within the chunk
     const lastWordStart = words[words.length - 1].start;
@@ -233,11 +173,10 @@ export function useTTS() {
       }
     };
 
-    // Start with first word immediately
     updatePosition(globalOffset + words[0].start);
     lastWordIdx = 0;
     rafRef.current = requestAnimationFrame(step);
-  }, [updatePosition]);
+  }, [updatePosition, estimateCps]);
 
   const setOnEnd = useCallback((cb: (() => void) | null) => {
     onEndCallbackRef.current = cb;
@@ -255,7 +194,6 @@ export function useTTS() {
       setProgress(100);
       setActiveCharIndex(-1);
       clearWordTimer();
-      stopKeepAlive();
       onEndCallbackRef.current?.();
       return;
     }
@@ -272,11 +210,12 @@ export function useTTS() {
     if (voice) utterance.voice = voice;
     utterance.rate = rateRef.current;
     utterance.pitch = pitchRef.current;
+
     utterance.onboundary = (e) => {
       if (e.name === 'word') {
         if (!boundaryFiredRef.current) {
           boundaryFiredRef.current = true;
-          clearWordTimer(); // Native tracking works, stop fallback
+          clearWordTimer();
         }
         updatePosition(globalOffset + e.charIndex);
       }
@@ -285,7 +224,6 @@ export function useTTS() {
     utterance.onstart = () => {
       if (cancelingRef.current) return;
       chunkStartTimeRef.current = performance.now();
-      // Start fallback stepper on actual speech start (not after arbitrary delay)
       if (!boundaryFiredRef.current && speakingRef.current) {
         startWordStepper(chunkText, globalOffset, rateRef.current);
       }
@@ -294,15 +232,19 @@ export function useTTS() {
     utterance.onend = () => {
       if (cancelingRef.current) return;
       clearWordTimer();
-      // Calibrate: measure actual duration of this chunk
+      // Calibrate: store actual CPS at current rate
       if (!boundaryFiredRef.current && chunkStartTimeRef.current > 0) {
         const actualDurationMs = performance.now() - chunkStartTimeRef.current;
-        const actualCps = chunkText.length / (actualDurationMs / 1000) / rateRef.current;
-        if (actualCps > 2 && actualCps < 30) {
-          calibratedCpsRef.current = calibratedCpsRef.current > 0
-            ? calibratedCpsRef.current * 0.3 + actualCps * 0.7
-            : actualCps;
-          localStorage.setItem('nr-ttsCps', String(calibratedCpsRef.current));
+        if (actualDurationMs > 100) { // ignore suspiciously fast completions
+          const actualCps = chunkText.length / (actualDurationMs / 1000);
+          if (actualCps > 2 && actualCps < 50) {
+            calibratedCpsRef.current = calibratedCpsRef.current > 0
+              ? calibratedCpsRef.current * 0.3 + actualCps * 0.7
+              : actualCps;
+            calibratedRateRef.current = rateRef.current;
+            localStorage.setItem('nr-ttsCps', String(calibratedCpsRef.current));
+            localStorage.setItem('nr-ttsCpsRate', String(calibratedRateRef.current));
+          }
         }
       }
       speakChunk(chunkIndex + 1);
@@ -318,7 +260,7 @@ export function useTTS() {
     };
 
     speechSynthesis.speak(utterance);
-  }, [clearWordTimer, updatePosition, startWordStepper, stopKeepAlive]);
+  }, [clearWordTimer, updatePosition, startWordStepper]);
 
   const speakFromIndex = useCallback((text: string, startCharIndex = 0) => {
     cancelingRef.current = true;
@@ -345,10 +287,9 @@ export function useTTS() {
     setIsSpeaking(true);
     setIsPaused(false);
     setActiveCharIndex(startCharIndex);
-    startKeepAlive();
 
     speakChunk(0);
-  }, [speakChunk, clearWordTimer, startKeepAlive]);
+  }, [speakChunk, clearWordTimer]);
 
   const speak = useCallback((text: string) => {
     speakFromIndex(text, 0);
@@ -365,12 +306,11 @@ export function useTTS() {
     speechSynthesis.resume();
     pausedRef.current = false;
     setIsPaused(false);
-    // Restart fallback stepper if needed
     if (!boundaryFiredRef.current && speakingRef.current) {
       const chunk = chunksRef.current[currentChunkRef.current];
       const offset = chunkOffsetsRef.current[currentChunkRef.current];
       if (chunk) {
-        chunkStartTimeRef.current = performance.now(); // reset timing
+        chunkStartTimeRef.current = performance.now();
         startWordStepper(chunk, offset, rateRef.current);
       }
     }
@@ -382,7 +322,6 @@ export function useTTS() {
     pausedRef.current = false;
     speechSynthesis.cancel();
     clearWordTimer();
-    stopKeepAlive();
     cancelingRef.current = false;
     chunksRef.current = [];
     chunkOffsetsRef.current = [];
@@ -390,7 +329,7 @@ export function useTTS() {
     setIsPaused(false);
     setProgress(0);
     setActiveCharIndex(-1);
-  }, [clearWordTimer, stopKeepAlive]);
+  }, [clearWordTimer]);
 
   return {
     isSpeaking, isPaused, progress, voices, selectedVoice,
