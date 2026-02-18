@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, memo } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,7 +41,7 @@ type HistoryEntry = {
 };
 
 // Component that renders text with word-level highlighting and click-to-read
-function ChapterArticle({
+const ChapterArticle = memo(function ChapterArticle({
   displayText,
   activeCharIndex,
   isSpeaking,
@@ -112,7 +112,7 @@ function ChapterArticle({
       ))}
     </article>
   );
-}
+});
 
 const Index = () => {
   const [url, setUrl] = useState("");
@@ -202,16 +202,20 @@ const Index = () => {
         getReadingHistory(user.id).then(setHistory);
       }
 
-      // Translate in background with streaming
+      // Translate in background with streaming (RAF-batched)
       setIsTranslating(true);
       setDisplayText("");
       let streamedText = "";
+      let rafId = 0;
+      let needsFlush = false;
+      const flushText = () => { setDisplayText(streamedText); needsFlush = false; };
       translateChapterStream(data.content, language, (delta) => {
         streamedText += delta;
-        setDisplayText(streamedText);
+        if (!needsFlush) { needsFlush = true; rafId = requestAnimationFrame(flushText); }
       })
         .then(() => {
-          // Auto-start TTS if autoRead is enabled
+          cancelAnimationFrame(rafId);
+          setDisplayText(streamedText);
           if (autoReadRef.current) {
             setTimeout(() => activeTts.speak(streamedText), 300);
           }
@@ -238,10 +242,15 @@ const Index = () => {
     try {
       setDisplayText("");
       let streamedText = "";
+      let rafId = 0;
+      let needsFlush = false;
+      const flushText = () => { setDisplayText(streamedText); needsFlush = false; };
       await translateChapterStream(chapter.content, language, (delta) => {
         streamedText += delta;
-        setDisplayText(streamedText);
+        if (!needsFlush) { needsFlush = true; rafId = requestAnimationFrame(flushText); }
       });
+      cancelAnimationFrame(rafId);
+      setDisplayText(streamedText);
       toast.success("Tradução atualizada!");
     } catch (err: any) {
       toast.error("Erro: " + err.message);
