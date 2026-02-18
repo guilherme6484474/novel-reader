@@ -130,12 +130,13 @@ export function useTTS() {
     const words = buildWordMap(chunkText);
     if (words.length === 0) return;
 
-    // Use calibrated rate or default (~8 chars/sec at rate 1.0)
-    const cps = (calibratedCpsRef.current || 8) * speechRate;
+    // Use calibrated rate or default (~12 chars/sec at rate 1.0)
+    // TTS engines speak faster on longer text (rhythm), so boost slightly for long chunks
+    const baseCps = calibratedCpsRef.current || 12;
+    const lengthBoost = chunkText.length > 150 ? 1.08 : 1.0;
+    const cps = baseCps * speechRate * lengthBoost;
     const totalChars = chunkText.length;
     const estimatedDurationMs = (totalChars / cps) * 1000;
-
-    chunkStartTimeRef.current = performance.now();
 
     // Map each word to a fractional position [0, 1] within the chunk
     const lastWordStart = words[words.length - 1].start;
@@ -147,8 +148,7 @@ export function useTTS() {
       if (!speakingRef.current || pausedRef.current) return;
 
       const elapsed = performance.now() - chunkStartTimeRef.current;
-      // Use ~90% of estimated duration for word distribution (last 10% is trailing silence)
-      const fraction = Math.min(elapsed / (estimatedDurationMs * 0.9), 1);
+      const fraction = Math.min(elapsed / estimatedDurationMs, 1);
 
       // Find the word that corresponds to current time fraction
       let wordIdx = 0;
