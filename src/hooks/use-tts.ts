@@ -57,6 +57,44 @@ function buildWordMap(text: string): { word: string; start: number }[] {
   return words;
 }
 
+// Create a silent audio context to keep audio session alive on mobile
+function createSilentAudio(): HTMLAudioElement | null {
+  try {
+    // Generate a tiny silent WAV file as data URI
+    const sampleRate = 8000;
+    const numSamples = sampleRate; // 1 second of silence
+    const buffer = new ArrayBuffer(44 + numSamples * 2);
+    const view = new DataView(buffer);
+    // WAV header
+    const writeString = (offset: number, str: string) => {
+      for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    };
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + numSamples * 2, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeString(36, 'data');
+    view.setUint32(40, numSamples * 2, true);
+    // samples are all 0 (silence)
+
+    const blob = new Blob([buffer], { type: 'audio/wav' });
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.loop = true;
+    audio.volume = 0.01; // nearly silent
+    return audio;
+  } catch {
+    return null;
+  }
+}
+
 export function useTTS() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -66,6 +104,9 @@ export function useTTS() {
   const [rate, setRate] = useState(() => Number(localStorage.getItem('nr-ttsRate')) || 1);
   const [pitch, setPitch] = useState(() => Number(localStorage.getItem('nr-ttsPitch')) || 1);
   const [activeCharIndex, setActiveCharIndex] = useState(-1);
+
+  const silentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   const onEndCallbackRef = useRef<(() => void) | null>(null);
   const cancelingRef = useRef(false);
@@ -106,6 +147,29 @@ export function useTTS() {
     loadVoices();
     speechSynthesis.onvoiceschanged = loadVoices;
     return () => { speechSynthesis.onvoiceschanged = null; };
+  }, []);
+  // Keep audio session alive on mobile (prevents OS from suspending TTS)
+  const startKeepAlive = useCallback(async () => {
+    // Silent audio
+    if (!silentAudioRef.current) {
+      silentAudioRef.current = createSilentAudio();
+    }
+    try {
+      await silentAudioRef.current?.play();
+    } catch { /* user hasn't interacted yet, ignore */ }
+
+    // Wake Lock (keeps CPU awake)
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+      }
+    } catch { /* not supported or denied */ }
+  }, []);
+
+  const stopKeepAlive = useCallback(() => {
+    silentAudioRef.current?.pause();
+    wakeLockRef.current?.release().catch(() => {});
+    wakeLockRef.current = null;
   }, []);
 
   const clearWordTimer = useCallback(() => {
@@ -191,6 +255,7 @@ export function useTTS() {
       setProgress(100);
       setActiveCharIndex(-1);
       clearWordTimer();
+      stopKeepAlive();
       onEndCallbackRef.current?.();
       return;
     }
@@ -253,7 +318,7 @@ export function useTTS() {
     };
 
     speechSynthesis.speak(utterance);
-  }, [clearWordTimer, updatePosition, startWordStepper]);
+  }, [clearWordTimer, updatePosition, startWordStepper, stopKeepAlive]);
 
   const speakFromIndex = useCallback((text: string, startCharIndex = 0) => {
     cancelingRef.current = true;
@@ -280,9 +345,10 @@ export function useTTS() {
     setIsSpeaking(true);
     setIsPaused(false);
     setActiveCharIndex(startCharIndex);
+    startKeepAlive();
 
     speakChunk(0);
-  }, [speakChunk, clearWordTimer]);
+  }, [speakChunk, clearWordTimer, startKeepAlive]);
 
   const speak = useCallback((text: string) => {
     speakFromIndex(text, 0);
@@ -316,6 +382,7 @@ export function useTTS() {
     pausedRef.current = false;
     speechSynthesis.cancel();
     clearWordTimer();
+    stopKeepAlive();
     cancelingRef.current = false;
     chunksRef.current = [];
     chunkOffsetsRef.current = [];
@@ -323,7 +390,7 @@ export function useTTS() {
     setIsPaused(false);
     setProgress(0);
     setActiveCharIndex(-1);
-  }, [clearWordTimer]);
+  }, [clearWordTimer, stopKeepAlive]);
 
   return {
     isSpeaking, isPaused, progress, voices, selectedVoice,
