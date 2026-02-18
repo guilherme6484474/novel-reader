@@ -13,13 +13,21 @@ export function useTTS() {
   const onEndCallbackRef = useRef<(() => void) | null>(null);
   const cancelingRef = useRef(false);
 
+  // Use refs for voice/rate so speakFromIndex always reads the latest values
+  const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
+  const selectedVoiceRef = useRef(selectedVoice);
+  const rateRef = useRef(rate);
+
+  useEffect(() => { voicesRef.current = voices; }, [voices]);
+  useEffect(() => { selectedVoiceRef.current = selectedVoice; }, [selectedVoice]);
+  useEffect(() => { rateRef.current = rate; }, [rate]);
+
   useEffect(() => {
     const loadVoices = () => {
       const v = speechSynthesis.getVoices();
       setVoices(v);
       if (v.length > 0) {
         setSelectedVoice(prev => {
-          // If we already have a saved voice that exists in the list, keep it
           if (prev && v.some(voice => voice.name === prev)) return prev;
           const ptVoice = v.find(voice => voice.lang.startsWith('pt'));
           return ptVoice?.name || v[0].name;
@@ -29,7 +37,7 @@ export function useTTS() {
     loadVoices();
     speechSynthesis.onvoiceschanged = loadVoices;
     return () => { speechSynthesis.onvoiceschanged = null; };
-  }, [selectedVoice]);
+  }, []);
 
   const setOnEnd = useCallback((cb: (() => void) | null) => {
     onEndCallbackRef.current = cb;
@@ -44,9 +52,10 @@ export function useTTS() {
     textRef.current = text;
 
     const utterance = new SpeechSynthesisUtterance(textToSpeak);
-    const voice = voices.find(v => v.name === selectedVoice);
+    // Always read from refs to get the latest voice and rate
+    const voice = voicesRef.current.find(v => v.name === selectedVoiceRef.current);
     if (voice) utterance.voice = voice;
-    utterance.rate = rate;
+    utterance.rate = rateRef.current;
 
     utterance.onboundary = (e) => {
       if (e.name === 'word') {
@@ -63,7 +72,6 @@ export function useTTS() {
       onEndCallbackRef.current?.();
     };
     utterance.onerror = (e) => {
-      // Ignore errors from intentional cancel (e.g. clicking a new word)
       if (cancelingRef.current || e.error === 'canceled' || e.error === 'interrupted') return;
       setIsSpeaking(false);
       setIsPaused(false);
@@ -75,7 +83,7 @@ export function useTTS() {
     setIsSpeaking(true);
     setIsPaused(false);
     setActiveCharIndex(startCharIndex);
-  }, [voices, selectedVoice, rate]);
+  }, []); // No dependencies - uses refs
 
   const speak = useCallback((text: string) => {
     speakFromIndex(text, 0);
