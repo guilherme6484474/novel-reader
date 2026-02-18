@@ -25,9 +25,9 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    console.log(`Translating ${text.length} chars to ${targetLanguage}`);
+    console.log(`Translating ${text.length} chars to ${targetLanguage} (streaming)`);
 
-    // Split text into chunks if too large (max ~4000 chars per chunk)
+    // Split text into chunks if too large
     const MAX_CHUNK = 4000;
     const chunks: string[] = [];
     
@@ -47,68 +47,95 @@ serve(async (req) => {
       if (current) chunks.push(current);
     }
 
-    const translateChunk = async (chunk: string, index: number): Promise<{ index: number; text: string }> => {
-      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
-          messages: [
-            {
-              role: "system",
-              content: `You are a professional literary translator. Translate the following novel chapter text to ${targetLanguage}. 
+    // Stream response using SSE
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          for (let i = 0; i < chunks.length; i++) {
+            const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${LOVABLE_API_KEY}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model: "google/gemini-3-flash-preview",
+                stream: true,
+                messages: [
+                  {
+                    role: "system",
+                    content: `You are a professional literary translator. Translate the following novel chapter text to ${targetLanguage}. 
 Rules:
 - Keep the same paragraph structure and formatting
 - Maintain the tone, style and emotion of the original
 - Do NOT add any notes, explanations or commentary
 - Output ONLY the translated text`
-            },
-            { role: "user", content: chunk }
-          ],
-        }),
-      });
+                  },
+                  { role: "user", content: chunks[i] }
+                ],
+              }),
+            });
 
-      if (!response.ok) {
-        if (response.status === 429) {
-          throw { status: 429, message: "Rate limit exceeded. Please try again in a moment." };
+            if (!response.ok) {
+              const errText = await response.text();
+              console.error(`AI error chunk ${i}:`, response.status, errText);
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: `Translation failed: ${response.status}` })}\n\n`));
+              controller.close();
+              return;
+            }
+
+            const reader = response.body!.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+
+              let newlineIdx;
+              while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
+                let line = buffer.slice(0, newlineIdx);
+                buffer = buffer.slice(newlineIdx + 1);
+                if (line.endsWith('\r')) line = line.slice(0, -1);
+                if (!line.startsWith('data: ')) continue;
+                const jsonStr = line.slice(6).trim();
+                if (jsonStr === '[DONE]') continue;
+                try {
+                  const parsed = JSON.parse(jsonStr);
+                  const content = parsed.choices?.[0]?.delta?.content;
+                  if (content) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: content })}\n\n`));
+                  }
+                } catch { /* skip partial JSON */ }
+              }
+            }
+
+            // Add separator between chunks
+            if (i < chunks.length - 1) {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: "\n\n" })}\n\n`));
+            }
+          }
+
+          controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
+          controller.close();
+          console.log('Streaming translation complete');
+        } catch (err) {
+          console.error('Stream error:', err);
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: err instanceof Error ? err.message : 'Unknown error' })}\n\n`));
+          controller.close();
         }
-        if (response.status === 402) {
-          throw { status: 402, message: "AI credits exhausted. Please add credits." };
-        }
-        const errText = await response.text();
-        console.error(`AI error chunk ${index}:`, response.status, errText);
-        throw new Error(`Translation failed: ${response.status}`);
       }
+    });
 
-      const data = await response.json();
-      return { index, text: data.choices?.[0]?.message?.content || '' };
-    };
-
-    try {
-      // Translate all chunks in parallel
-      const results = await Promise.all(chunks.map((chunk, i) => translateChunk(chunk, i)));
-      results.sort((a, b) => a.index - b.index);
-      var translatedChunks = results.map(r => r.text);
-    } catch (err: any) {
-      if (err.status === 429 || err.status === 402) {
-        return new Response(
-          JSON.stringify({ error: err.message }),
-          { status: err.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-      throw err;
-    }
-
-    const translatedText = translatedChunks.join('\n\n');
-    console.log(`Translation done: ${translatedText.length} chars`);
-
-    return new Response(
-      JSON.stringify({ translatedText }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return new Response(stream, {
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+      },
+    });
   } catch (error) {
     console.error('Translation error:', error);
     return new Response(

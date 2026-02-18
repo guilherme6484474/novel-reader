@@ -6,7 +6,7 @@ import {
 } from "@/components/ui/select";
 import { useTTS } from "@/hooks/use-tts";
 import { useElevenLabsTTS, ELEVENLABS_VOICES } from "@/hooks/use-elevenlabs-tts";
-import { scrapeChapter, translateChapter, type ChapterData } from "@/lib/api/novel";
+import { scrapeChapter, translateChapterStream, type ChapterData } from "@/lib/api/novel";
 import { saveReadingProgress, getReadingHistory, deleteReadingEntry } from "@/lib/api/reading-history";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -202,14 +202,18 @@ const Index = () => {
         getReadingHistory(user.id).then(setHistory);
       }
 
-      // Translate in background
+      // Translate in background with streaming
       setIsTranslating(true);
-      translateChapter(data.content, language)
-        .then((translated) => {
-          setDisplayText(translated);
+      setDisplayText("");
+      let streamedText = "";
+      translateChapterStream(data.content, language, (delta) => {
+        streamedText += delta;
+        setDisplayText(streamedText);
+      })
+        .then(() => {
           // Auto-start TTS if autoRead is enabled
           if (autoReadRef.current) {
-            setTimeout(() => activeTts.speak(translated), 300);
+            setTimeout(() => activeTts.speak(streamedText), 300);
           }
         })
         .catch((err: any) => toast.error("Erro na tradução: " + err.message))
@@ -232,8 +236,12 @@ const Index = () => {
     tts.stop();
     elTts.stop();
     try {
-      const translated = await translateChapter(chapter.content, language);
-      setDisplayText(translated);
+      setDisplayText("");
+      let streamedText = "";
+      await translateChapterStream(chapter.content, language, (delta) => {
+        streamedText += delta;
+        setDisplayText(streamedText);
+      });
       toast.success("Tradução atualizada!");
     } catch (err: any) {
       toast.error("Erro: " + err.message);
