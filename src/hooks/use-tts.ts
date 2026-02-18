@@ -77,7 +77,9 @@ export function useTTS() {
   const pausedRef = useRef(false);
   const boundaryFiredRef = useRef(false);
   const wordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rafRef = useRef<number | null>(null);
   const chunkStartTimeRef = useRef(0);
+  const calibratedCpsRef = useRef(0); // chars per second, 0 = not yet calibrated
 
   const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
   const selectedVoiceRef = useRef(selectedVoice);
@@ -111,6 +113,10 @@ export function useTTS() {
       clearTimeout(wordTimerRef.current);
       wordTimerRef.current = null;
     }
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
   }, []);
 
   const updatePosition = useCallback((globalCharIndex: number) => {
@@ -119,42 +125,54 @@ export function useTTS() {
     if (totalLen > 0) setProgress((globalCharIndex / totalLen) * 100);
   }, []);
 
-  // Fallback: step through words using estimated timing
+  // Fallback: interpolate word position using estimated chunk duration
   const startWordStepper = useCallback((chunkText: string, globalOffset: number, speechRate: number) => {
     const words = buildWordMap(chunkText);
     if (words.length === 0) return;
 
-    // Calibrated: ~5 chars/sec at rate 1.0 (~300 chars/min)
-    // Tuned for mobile TTS voices
-    const msPerChar = (1000 / 5) / speechRate;
-    
-    let wordIdx = 0;
+    // Use calibrated rate or default (~8 chars/sec at rate 1.0)
+    const cps = (calibratedCpsRef.current || 8) * speechRate;
+    const totalChars = chunkText.length;
+    const estimatedDurationMs = (totalChars / cps) * 1000;
+
     chunkStartTimeRef.current = performance.now();
 
+    // Map each word to a fractional position [0, 1] within the chunk
+    const lastWordStart = words[words.length - 1].start;
+    const wordFractions = words.map(w => lastWordStart > 0 ? w.start / lastWordStart : 0);
+
+    let lastWordIdx = -1;
+
     const step = () => {
-      if (!speakingRef.current || pausedRef.current || wordIdx >= words.length) return;
-      
-      // Calculate expected time for current word based on cumulative chars
-      const charsBeforeWord = chunkText.slice(0, words[wordIdx].start).replace(/\s+/g, '').length;
-      const expectedTime = charsBeforeWord * msPerChar;
+      if (!speakingRef.current || pausedRef.current) return;
+
       const elapsed = performance.now() - chunkStartTimeRef.current;
-      
-      if (elapsed >= expectedTime) {
-        updatePosition(globalOffset + words[wordIdx].start);
-        wordIdx++;
+      // Use ~90% of estimated duration for word distribution (last 10% is trailing silence)
+      const fraction = Math.min(elapsed / (estimatedDurationMs * 0.9), 1);
+
+      // Find the word that corresponds to current time fraction
+      let wordIdx = 0;
+      for (let i = words.length - 1; i >= 0; i--) {
+        if (fraction >= wordFractions[i]) {
+          wordIdx = i;
+          break;
+        }
       }
-      
-      if (wordIdx < words.length) {
-        wordTimerRef.current = setTimeout(step, 80); // Check every 80ms
+
+      if (wordIdx !== lastWordIdx) {
+        lastWordIdx = wordIdx;
+        updatePosition(globalOffset + words[wordIdx].start);
+      }
+
+      if (fraction < 1) {
+        rafRef.current = requestAnimationFrame(step);
       }
     };
 
-    // Start immediately with first word
+    // Start with first word immediately
     updatePosition(globalOffset + words[0].start);
-    wordIdx = 1;
-    if (words.length > 1) {
-      wordTimerRef.current = setTimeout(step, 80);
-    }
+    lastWordIdx = 0;
+    rafRef.current = requestAnimationFrame(step);
   }, [updatePosition]);
 
   const setOnEnd = useCallback((cb: (() => void) | null) => {
@@ -202,6 +220,17 @@ export function useTTS() {
     utterance.onend = () => {
       if (cancelingRef.current) return;
       clearWordTimer();
+      // Calibrate: measure actual duration of this chunk
+      if (!boundaryFiredRef.current && chunkStartTimeRef.current > 0) {
+        const actualDurationMs = performance.now() - chunkStartTimeRef.current;
+        const actualCps = chunkText.length / (actualDurationMs / 1000) / rateRef.current;
+        if (actualCps > 2 && actualCps < 30) {
+          // Blend with previous calibration for stability
+          calibratedCpsRef.current = calibratedCpsRef.current > 0
+            ? calibratedCpsRef.current * 0.4 + actualCps * 0.6
+            : actualCps;
+        }
+      }
       speakChunk(chunkIndex + 1);
     };
 
