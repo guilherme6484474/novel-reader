@@ -11,6 +11,7 @@ export function useTTS() {
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const textRef = useRef("");
   const onEndCallbackRef = useRef<(() => void) | null>(null);
+  const cancelingRef = useRef(false);
 
   useEffect(() => {
     const loadVoices = () => {
@@ -35,7 +36,10 @@ export function useTTS() {
   }, []);
 
   const speakFromIndex = useCallback((text: string, startCharIndex = 0) => {
+    cancelingRef.current = true;
     speechSynthesis.cancel();
+    cancelingRef.current = false;
+    
     const textToSpeak = text.slice(startCharIndex);
     textRef.current = text;
 
@@ -58,7 +62,9 @@ export function useTTS() {
       setActiveCharIndex(-1);
       onEndCallbackRef.current?.();
     };
-    utterance.onerror = () => {
+    utterance.onerror = (e) => {
+      // Ignore errors from intentional cancel (e.g. clicking a new word)
+      if (cancelingRef.current || e.error === 'canceled' || e.error === 'interrupted') return;
       setIsSpeaking(false);
       setIsPaused(false);
       setActiveCharIndex(-1);
