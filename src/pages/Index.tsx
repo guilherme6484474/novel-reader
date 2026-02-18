@@ -148,6 +148,7 @@ const Index = () => {
   useEffect(() => { localStorage.setItem('nr-fontSize', String(fontSize)); }, [fontSize]);
   useEffect(() => { localStorage.setItem('nr-language', language); }, [language]);
   useEffect(() => { localStorage.setItem('nr-ttsRate', String(tts.rate)); }, [tts.rate]);
+  useEffect(() => { localStorage.setItem('nr-ttsPitch', String(tts.pitch)); }, [tts.pitch]);
   useEffect(() => { localStorage.setItem('nr-ttsVoice', tts.selectedVoice); }, [tts.selectedVoice]);
   useEffect(() => { localStorage.setItem('nr-autoRead', String(autoRead)); }, [autoRead]);
 
@@ -155,6 +156,8 @@ const Index = () => {
   useEffect(() => {
     const savedRate = localStorage.getItem('nr-ttsRate');
     if (savedRate) tts.setRate(Number(savedRate));
+    const savedPitch = localStorage.getItem('nr-ttsPitch');
+    if (savedPitch) tts.setPitch(Number(savedPitch));
     const savedVoice = localStorage.getItem('nr-ttsVoice');
     if (savedVoice) tts.setSelectedVoice(savedVoice);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -437,6 +440,16 @@ const Index = () => {
                     className="flex-1"
                   />
                   <span className="text-xs font-medium text-foreground w-10 text-right">{tts.rate}x</span>
+                </div>
+                <div className="flex items-center gap-3 mt-2">
+                  <span className="text-xs text-muted-foreground w-10">Tom</span>
+                  <Slider
+                    value={[tts.pitch]}
+                    onValueChange={([v]) => tts.setPitch(v)}
+                    min={0.5} max={2} step={0.1}
+                    className="flex-1"
+                  />
+                  <span className="text-xs font-medium text-foreground w-10 text-right">{tts.pitch}</span>
                 </div>
               </div>
               {/* Install App */}
