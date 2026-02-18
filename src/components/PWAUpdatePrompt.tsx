@@ -27,7 +27,17 @@ export function PWAUpdatePrompt() {
       </div>
       <Button
         size="sm"
-        onClick={() => updateServiceWorker(true)}
+        onClick={async () => {
+          try {
+            await updateServiceWorker(true);
+          } catch {
+            // Fallback: force reload if SW update fails
+          }
+          // Give SW a moment to activate, then force reload
+          setTimeout(() => {
+            window.location.reload();
+          }, 1000);
+        }}
         className="shrink-0 gap-1.5 rounded-lg"
       >
         <RefreshCw className="h-3.5 w-3.5" />
