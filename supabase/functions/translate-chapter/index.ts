@@ -47,9 +47,7 @@ serve(async (req) => {
       if (current) chunks.push(current);
     }
 
-    const translatedChunks: string[] = [];
-
-    for (const chunk of chunks) {
+    const translateChunk = async (chunk: string, index: number): Promise<{ index: number; text: string }> => {
       const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -75,25 +73,33 @@ Rules:
 
       if (!response.ok) {
         if (response.status === 429) {
-          return new Response(
-            JSON.stringify({ error: "Rate limit exceeded. Please try again in a moment." }),
-            { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+          throw { status: 429, message: "Rate limit exceeded. Please try again in a moment." };
         }
         if (response.status === 402) {
-          return new Response(
-            JSON.stringify({ error: "AI credits exhausted. Please add credits." }),
-            { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+          throw { status: 402, message: "AI credits exhausted. Please add credits." };
         }
         const errText = await response.text();
-        console.error("AI error:", response.status, errText);
+        console.error(`AI error chunk ${index}:`, response.status, errText);
         throw new Error(`Translation failed: ${response.status}`);
       }
 
       const data = await response.json();
-      const translated = data.choices?.[0]?.message?.content || '';
-      translatedChunks.push(translated);
+      return { index, text: data.choices?.[0]?.message?.content || '' };
+    };
+
+    try {
+      // Translate all chunks in parallel
+      const results = await Promise.all(chunks.map((chunk, i) => translateChunk(chunk, i)));
+      results.sort((a, b) => a.index - b.index);
+      var translatedChunks = results.map(r => r.text);
+    } catch (err: any) {
+      if (err.status === 429 || err.status === 402) {
+        return new Response(
+          JSON.stringify({ error: err.message }),
+          { status: err.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      throw err;
     }
 
     const translatedText = translatedChunks.join('\n\n');
