@@ -439,6 +439,28 @@ const Index = () => {
                   <span className="text-xs font-medium text-foreground w-10 text-right">{tts.rate}x</span>
                 </div>
               </div>
+              {/* Install App */}
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Instalar App</p>
+                {pwa.isInstalled ? (
+                  <p className="text-xs text-muted-foreground">✅ App já instalado!</p>
+                ) : pwa.canInstall ? (
+                  <Button
+                    variant="outline" size="sm"
+                    onClick={pwa.install}
+                    className="rounded-lg gap-2 text-xs border-border/60"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Instalar no celular
+                  </Button>
+                ) : (
+                  <div className="text-xs text-muted-foreground space-y-1.5">
+                    <p className="font-medium text-foreground/80">Para instalar:</p>
+                    <p>📱 <strong>iPhone:</strong> Toque em Compartilhar (⬆) → "Adicionar à Tela de Início"</p>
+                    <p>🤖 <strong>Android:</strong> Menu do navegador (⋮) → "Instalar app" ou "Adicionar à tela inicial"</p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
