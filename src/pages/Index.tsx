@@ -360,7 +360,7 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background text-foreground transition-colors">
       {/* Header */}
-      <header className="sticky top-0 z-10 border-b border-border/60 bg-background/80 backdrop-blur-xl">
+      <header className="sticky top-0 z-10 border-b border-border/60 bg-background/80 backdrop-blur-xl" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
         <div className="mx-auto max-w-3xl px-4 sm:px-6 py-3 sm:py-4">
           {/* Top bar */}
           <div className="flex items-center justify-between mb-3">
@@ -792,7 +792,7 @@ const Index = () => {
 
       {/* TTS Bar */}
       {chapter && displayText && (
-        <div className="fixed bottom-0 left-0 right-0 border-t border-border/60 bg-background/80 backdrop-blur-xl px-4 sm:px-6 py-2.5 sm:py-3">
+        <div className="fixed bottom-0 left-0 right-0 border-t border-border/60 bg-background/80 backdrop-blur-xl px-4 sm:px-6 py-2.5 sm:py-3" style={{ paddingBottom: 'max(0.625rem, env(safe-area-inset-bottom))' }}>
           <div className="mx-auto max-w-3xl">
             <Progress value={tts.progress} className="mb-2 h-1 rounded-full" />
             <div className="flex items-center justify-center gap-2">
