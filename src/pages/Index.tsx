@@ -523,12 +523,65 @@ const Index = () => {
                     <SelectTrigger className="h-8 text-xs flex-1 rounded-lg bg-background">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
-                      {tts.voices.map((v) => (
-                        <SelectItem key={v.name} value={v.name}>
-                          {v.name} ({v.lang})
-                        </SelectItem>
-                      ))}
+                    <SelectContent className="max-h-60">
+                      {(() => {
+                        // Group voices by language, prioritize current language
+                        const langMap = new Map<string, SpeechSynthesisVoice[]>();
+                        tts.voices.forEach(v => {
+                          const lang = v.lang.split('-')[0];
+                          if (!langMap.has(lang)) langMap.set(lang, []);
+                          langMap.get(lang)!.push(v);
+                        });
+
+                        const langLabels: Record<string, string> = {
+                          pt: '🇧🇷 Português', en: '🇺🇸 English', es: '🇪🇸 Español',
+                          fr: '🇫🇷 Français', ja: '🇯🇵 日本語', ko: '🇰🇷 한국어',
+                          zh: '🇨🇳 中文', de: '🇩🇪 Deutsch', it: '🇮🇹 Italiano', ru: '🇷🇺 Русский',
+                        };
+
+                        // Target lang code from selected language
+                        const targetLang = language.toLowerCase().startsWith('portuguese') ? 'pt'
+                          : language.toLowerCase().startsWith('english') ? 'en'
+                          : language.toLowerCase().startsWith('spanish') ? 'es'
+                          : language.toLowerCase().startsWith('french') ? 'fr'
+                          : language.toLowerCase().startsWith('japanese') ? 'ja'
+                          : language.toLowerCase().startsWith('korean') ? 'ko'
+                          : language.toLowerCase().startsWith('chinese') ? 'zh' : 'pt';
+
+                        // Sort: target language first, then alphabetical
+                        const sortedLangs = Array.from(langMap.keys()).sort((a, b) => {
+                          if (a === targetLang) return -1;
+                          if (b === targetLang) return 1;
+                          return a.localeCompare(b);
+                        });
+
+                        return sortedLangs.map(lang => {
+                          const voices = langMap.get(lang)!;
+                          const label = langLabels[lang] || lang.toUpperCase();
+                          return (
+                            <div key={lang}>
+                              <div className="px-2 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-wider sticky top-0 bg-popover">
+                                {label}
+                              </div>
+                              {voices.map(v => {
+                                // Clean voice name: remove "Microsoft", "Google", lang suffix
+                                const cleanName = v.name
+                                  .replace(/Microsoft\s+/i, '')
+                                  .replace(/Google\s+/i, '')
+                                  .replace(/\s+Online.*$/i, '')
+                                  .replace(/\s*\(.*\)\s*$/, '')
+                                  .trim();
+                                return (
+                                  <SelectItem key={v.name} value={v.name}>
+                                    {cleanName}
+                                    {v.localService ? '' : ' ☁️'}
+                                  </SelectItem>
+                                );
+                              })}
+                            </div>
+                          );
+                        });
+                      })()}
                     </SelectContent>
                   </Select>
                 </div>
