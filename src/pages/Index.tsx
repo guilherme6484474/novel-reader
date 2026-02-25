@@ -357,10 +357,19 @@ const Index = () => {
     setHistory((prev) => prev.filter((h) => h.id !== id));
   };
 
+  const safeAreaTop = 'max(env(safe-area-inset-top), 0px)';
+  const safeAreaBottom = 'max(env(safe-area-inset-bottom), 0px)';
+  const contentBottomPadding = chapter && displayText
+    ? `calc(8.5rem + ${safeAreaBottom})`
+    : '8rem';
+
   return (
     <div className="min-h-screen bg-background text-foreground transition-colors">
       {/* Header */}
-      <header className="sticky top-0 z-10 border-b border-border/60 bg-background/80 backdrop-blur-xl">
+      <header
+        className="sticky z-20 border-b border-border/60 bg-background/80 backdrop-blur-xl"
+        style={{ top: safeAreaTop }}
+      >
         <div className="mx-auto max-w-3xl px-4 sm:px-6 py-3 sm:py-4">
           {/* Top bar */}
           <div className="flex items-center justify-between mb-3">
@@ -642,7 +651,7 @@ const Index = () => {
       )}
 
       {/* Content */}
-      <main className="mx-auto max-w-3xl px-4 sm:px-6 py-6 sm:py-8 pb-32">
+      <main className="mx-auto max-w-3xl px-4 sm:px-6 py-6 sm:py-8" style={{ paddingBottom: contentBottomPadding }}>
         {/* Empty State */}
         {!chapter && !isLoading && (
           <div className="py-8 sm:py-12">
@@ -792,7 +801,10 @@ const Index = () => {
 
       {/* TTS Bar */}
       {chapter && displayText && (
-        <div className="fixed bottom-0 left-0 right-0 border-t border-border/60 bg-background/80 backdrop-blur-xl px-4 sm:px-6 py-2.5 sm:py-3">
+        <div
+          className="fixed bottom-0 left-0 right-0 z-30 border-t border-border/60 bg-background/80 backdrop-blur-xl px-4 sm:px-6 pt-2.5 sm:pt-3"
+          style={{ paddingBottom: `calc(0.625rem + ${safeAreaBottom})` }}
+        >
           <div className="mx-auto max-w-3xl">
             <Progress value={tts.progress} className="mb-2 h-1 rounded-full" />
             <div className="flex items-center justify-center gap-2">
