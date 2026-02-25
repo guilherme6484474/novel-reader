@@ -92,6 +92,7 @@ export function useTTS() {
   useEffect(() => { pitchRef.current = pitch; }, [pitch]);
 
   useEffect(() => {
+    if (typeof speechSynthesis === 'undefined') return;
     const loadVoices = () => {
       const v = speechSynthesis.getVoices();
       setVoices(v);
@@ -259,12 +260,14 @@ export function useTTS() {
       setActiveCharIndex(-1);
     };
 
+    if (typeof speechSynthesis === 'undefined') return;
     speechSynthesis.speak(utterance);
   }, [clearWordTimer, updatePosition, startWordStepper]);
 
   const speakFromIndex = useCallback((text: string, startCharIndex = 0) => {
     cancelingRef.current = true;
-    speechSynthesis.cancel();
+    if (typeof speechSynthesis !== 'undefined') speechSynthesis.cancel();
+    clearWordTimer();
     clearWordTimer();
     cancelingRef.current = false;
 
@@ -296,6 +299,7 @@ export function useTTS() {
   }, [speakFromIndex]);
 
   const pause = useCallback(() => {
+    if (typeof speechSynthesis === 'undefined') return;
     speechSynthesis.pause();
     pausedRef.current = true;
     clearWordTimer();
@@ -303,6 +307,7 @@ export function useTTS() {
   }, [clearWordTimer]);
 
   const resume = useCallback(() => {
+    if (typeof speechSynthesis === 'undefined') return;
     speechSynthesis.resume();
     pausedRef.current = false;
     setIsPaused(false);
@@ -320,7 +325,7 @@ export function useTTS() {
     cancelingRef.current = true;
     speakingRef.current = false;
     pausedRef.current = false;
-    speechSynthesis.cancel();
+    if (typeof speechSynthesis !== 'undefined') speechSynthesis.cancel();
     clearWordTimer();
     cancelingRef.current = false;
     chunksRef.current = [];
