@@ -7,6 +7,7 @@ import {
 import { useTTS } from "@/hooks/use-tts";
 import { usePwaInstall } from "@/hooks/use-pwa-install";
 import { scrapeChapter, translateChapterStream, type ChapterData } from "@/lib/api/novel";
+import { getCachedTranslation, setCachedTranslation } from "@/lib/translation-cache";
 import { saveReadingProgress, getReadingHistory, deleteReadingEntry } from "@/lib/api/reading-history";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -208,6 +209,18 @@ const Index = () => {
         getReadingHistory(user.id).then(setHistory);
       }
 
+      // Check cache first
+      const cached = await getCachedTranslation(chapterUrl, language);
+      if (cached) {
+        console.log("Translation loaded from cache");
+        setDisplayText(cached);
+        setIsTranslating(false);
+        if (autoReadRef.current) {
+          setTimeout(() => tts.speak(cached), 300);
+        }
+        return;
+      }
+
       // Translate with abort support
       const controller = new AbortController();
       abortRef.current = controller;
@@ -226,12 +239,14 @@ const Index = () => {
         .then(() => {
           cancelAnimationFrame(rafId);
           setDisplayText(streamedText);
+          // Save to cache
+          setCachedTranslation(chapterUrl, language, streamedText);
           if (autoReadRef.current) {
             setTimeout(() => tts.speak(streamedText), 300);
           }
         })
         .catch((err: any) => {
-          if (err.name === 'AbortError') return; // Silently ignore aborted requests
+          if (err.name === 'AbortError') return;
           toast.error("Erro na tradução: " + err.message);
         })
         .finally(() => {
@@ -276,6 +291,9 @@ const Index = () => {
       }, controller.signal);
       cancelAnimationFrame(rafId);
       setDisplayText(streamedText);
+      // Update cache with new translation
+      const currentUrl = url;
+      setCachedTranslation(currentUrl, language, streamedText);
       toast.success("Tradução atualizada!");
     } catch (err: any) {
       if (err.name === 'AbortError') return;
