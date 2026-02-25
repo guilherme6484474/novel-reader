@@ -11,4 +11,13 @@ window.addEventListener('unhandledrejection', (event) => {
   console.error('[Novel Reader] Unhandled promise rejection:', event.reason);
 });
 
+// Configure StatusBar for native Android/iOS
+if (typeof (window as any).Capacitor !== 'undefined') {
+  import('@capacitor/status-bar').then(({ StatusBar, Style }) => {
+    StatusBar.setOverlaysWebView({ overlay: true }).catch(() => {});
+    StatusBar.setStyle({ style: Style.Dark }).catch(() => {});
+    StatusBar.setBackgroundColor({ color: '#00000000' }).catch(() => {});
+  }).catch(() => {});
+}
+
 createRoot(document.getElementById("root")!).render(<App />);
