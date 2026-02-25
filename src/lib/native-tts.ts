@@ -145,7 +145,8 @@ export async function getNativeVoices(): Promise<NativeVoice[]> {
 }
 
 /**
- * Speak text — tries native plugin first, falls back to Web Speech API
+ * Speak text — tries native plugin first, falls back to Web Speech API.
+ * Returns info about which engine was used.
  */
 export async function nativeSpeak(options: {
   text: string;
@@ -153,7 +154,7 @@ export async function nativeSpeak(options: {
   rate?: number;
   pitch?: number;
   voice?: number;
-}): Promise<void> {
+}): Promise<{ engine: string }> {
   const plugin = await getPlugin();
 
   // ─── Try native plugin ───
@@ -174,7 +175,7 @@ export async function nativeSpeak(options: {
 
     try {
       await plugin.speak(speakOptions);
-      return;
+      return { engine: 'capacitor-plugin' };
     } catch (e) {
       console.warn('[NativeTTS] Plugin speak failed, trying Web Speech fallback:', e);
     }
@@ -185,24 +186,45 @@ export async function nativeSpeak(options: {
     throw new Error('No TTS engine available');
   }
 
-  return new Promise<void>((resolve, reject) => {
-    const utterance = new SpeechSynthesisUtterance(options.text);
-    utterance.lang = options.lang || 'pt-BR';
-    utterance.rate = options.rate || 1.0;
-    utterance.pitch = options.pitch || 1.0;
+  return new Promise<{ engine: string }>((resolve, reject) => {
+    // Ensure voices are loaded
+    let voices = speechSynthesis.getVoices();
+    
+    const doSpeak = () => {
+      voices = speechSynthesis.getVoices();
+      const utterance = new SpeechSynthesisUtterance(options.text);
+      utterance.lang = options.lang || 'pt-BR';
+      utterance.rate = options.rate || 1.0;
+      utterance.pitch = options.pitch || 1.0;
 
-    // Try to find a matching voice
-    const voices = speechSynthesis.getVoices();
-    const match = voices.find(v => v.lang.startsWith(options.lang?.split('-')[0] || 'pt'));
-    if (match) utterance.voice = match;
+      // Try to find a matching voice
+      const langPrefix = options.lang?.split('-')[0] || 'pt';
+      const match = voices.find(v => v.lang.startsWith(langPrefix));
+      if (match) utterance.voice = match;
 
-    utterance.onend = () => resolve();
-    utterance.onerror = (e) => {
-      if (e.error === 'canceled' || e.error === 'interrupted') resolve();
-      else reject(new Error(e.error));
+      utterance.onend = () => resolve({ engine: `webSpeech(${match?.name || 'default'})` });
+      utterance.onerror = (e) => {
+        if (e.error === 'canceled' || e.error === 'interrupted') resolve({ engine: 'webSpeech-canceled' });
+        else reject(new Error(`WebSpeech error: ${e.error}`));
+      };
+
+      speechSynthesis.speak(utterance);
     };
 
-    speechSynthesis.speak(utterance);
+    // If voices not loaded yet, wait for them
+    if (voices.length === 0) {
+      speechSynthesis.onvoiceschanged = () => {
+        speechSynthesis.onvoiceschanged = null;
+        doSpeak();
+      };
+      // Timeout in case onvoiceschanged never fires
+      setTimeout(() => {
+        speechSynthesis.onvoiceschanged = null;
+        doSpeak();
+      }, 1000);
+    } else {
+      doSpeak();
+    }
   });
 }
 
