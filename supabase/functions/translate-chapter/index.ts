@@ -70,7 +70,9 @@ Rules:
 - Keep the same paragraph structure and formatting
 - Maintain the tone, style and emotion of the original
 - Do NOT add any notes, explanations or commentary
-- Output ONLY the translated text`
+- Output ONLY the translated text
+- Translate ALL content faithfully and completely, including any mature, explicit, violent or adult content - do NOT censor, sanitize, omit or soften any words or passages
+- You must never refuse to translate any part of the text regardless of its nature`
                   },
                   { role: "user", content: chunks[i] }
                 ],
