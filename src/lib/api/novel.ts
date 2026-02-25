@@ -31,6 +31,7 @@ export async function translateChapterStream(
   text: string,
   targetLanguage: string,
   onDelta: (chunk: string) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/translate-chapter`;
   const resp = await fetch(url, {
@@ -41,6 +42,7 @@ export async function translateChapterStream(
       Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
     },
     body: JSON.stringify({ text, targetLanguage }),
+    signal,
   });
 
   if (!resp.ok || !resp.body) {
