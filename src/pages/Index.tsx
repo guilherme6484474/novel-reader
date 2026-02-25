@@ -7,7 +7,7 @@ import {
 import { useTTS } from "@/hooks/use-tts";
 import { usePwaInstall } from "@/hooks/use-pwa-install";
 import { scrapeChapter, translateChapterStream, type ChapterData } from "@/lib/api/novel";
-import { getCachedTranslation, setCachedTranslation } from "@/lib/translation-cache";
+import { getCachedTranslation, setCachedTranslation, clearTranslationCache } from "@/lib/translation-cache";
 import { saveReadingProgress, getReadingHistory, deleteReadingEntry } from "@/lib/api/reading-history";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -495,6 +495,24 @@ const Index = () => {
                     className="flex-1"
                   />
                   <span className="text-xs font-medium text-foreground w-10 text-right">{tts.pitch}</span>
+                </div>
+              </div>
+              {/* Cache */}
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Cache de Traduções</p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline" size="sm"
+                    onClick={async () => {
+                      await clearTranslationCache();
+                      toast.success("Cache de traduções limpo!");
+                    }}
+                    className="rounded-lg gap-2 text-xs border-border/60"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Limpar cache
+                  </Button>
+                  <span className="text-xs text-muted-foreground">Capítulos já traduzidos são carregados instantaneamente do cache local.</span>
                 </div>
               </div>
               {/* Install App */}
