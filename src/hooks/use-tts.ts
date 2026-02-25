@@ -62,6 +62,7 @@ export interface TTSVoice {
   name: string;
   lang: string;
   localService: boolean;
+  voiceURI: string;
 }
 
 export function useTTS() {
@@ -106,6 +107,7 @@ export function useTTS() {
           name: v.name,
           lang: v.lang,
           localService: v.localService,
+          voiceURI: v.voiceURI || '',
         }));
         setVoices(mapped);
         if (mapped.length > 0) {
@@ -125,6 +127,7 @@ export function useTTS() {
           name: sv.name,
           lang: sv.lang,
           localService: sv.localService,
+          voiceURI: sv.voiceURI || '',
         }));
         setVoices(mapped);
         if (mapped.length > 0) {
@@ -223,13 +226,16 @@ export function useTTS() {
     startWordStepper(chunkText, globalOffset, rateRef.current);
 
     try {
-      // Find the lang from selected voice
+      // Find the selected voice and its index for Android native TTS
       const selectedV = voices.find(v => v.name === selectedVoiceRef.current);
+      const voiceIndex = voices.findIndex(v => v.name === selectedVoiceRef.current);
+      console.log(`[TTS] Speaking chunk ${chunkIndex} with voice: ${selectedV?.name} (index: ${voiceIndex}, lang: ${selectedV?.lang})`);
       await nativeSpeak({
         text: chunkText,
         lang: selectedV?.lang || 'pt-BR',
         rate: rateRef.current,
         pitch: pitchRef.current,
+        voice: voiceIndex >= 0 ? voiceIndex : undefined,
       });
 
       // Calibrate CPS
