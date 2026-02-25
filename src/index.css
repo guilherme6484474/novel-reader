@@ -95,9 +95,7 @@
   }
 
   html {
-    /* Support safe areas on Android/iOS */
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
+    /* Support safe areas on iOS notch devices */
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
   }

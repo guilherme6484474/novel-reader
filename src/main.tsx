@@ -14,9 +14,9 @@ window.addEventListener('unhandledrejection', (event) => {
 // Configure StatusBar for native Android/iOS
 if (typeof (window as any).Capacitor !== 'undefined') {
   import('@capacitor/status-bar').then(({ StatusBar, Style }) => {
-    StatusBar.setOverlaysWebView({ overlay: true }).catch(() => {});
+    StatusBar.setOverlaysWebView({ overlay: false }).catch(() => {});
     StatusBar.setStyle({ style: Style.Dark }).catch(() => {});
-    StatusBar.setBackgroundColor({ color: '#00000000' }).catch(() => {});
+    StatusBar.setBackgroundColor({ color: '#1a1510' }).catch(() => {});
   }).catch(() => {});
 }
 
