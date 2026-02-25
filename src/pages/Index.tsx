@@ -139,6 +139,7 @@ const Index = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const chapterRef = useRef<ChapterData | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   // Keep refs in sync
   useEffect(() => { autoReadRef.current = autoRead; }, [autoRead]);
@@ -180,7 +181,14 @@ const Index = () => {
   }, [user]);
 
   const loadChapter = async (chapterUrl: string) => {
+    // Cancel any in-flight translation
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+
     setIsLoading(true);
+    setIsTranslating(false);
     tts.stop();
     setShowHistory(false);
     try {
@@ -190,28 +198,31 @@ const Index = () => {
       setDisplayText(data.content);
       setIsLoading(false);
 
-      // Save progress — extract novel name from URL slug
+      // Save progress
       if (user) {
         const urlObj = new URL(chapterUrl);
         const pathParts = urlObj.pathname.split('/').filter(Boolean);
-        // Typically: /novel/novel-slug/chapter-xxx — use novel slug
         const novelSlug = pathParts.length >= 2 ? pathParts[pathParts.length - 2] : pathParts[0] || 'unknown';
         const novelName = novelSlug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         saveReadingProgress(user.id, chapterUrl, novelName, chapterUrl, data.title);
         getReadingHistory(user.id).then(setHistory);
       }
 
-      // Translate in background with streaming (RAF-batched)
+      // Translate with abort support
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       setIsTranslating(true);
       setDisplayText("");
       let streamedText = "";
       let rafId = 0;
       let needsFlush = false;
       const flushText = () => { setDisplayText(streamedText); needsFlush = false; };
+
       translateChapterStream(data.content, language, (delta) => {
         streamedText += delta;
         if (!needsFlush) { needsFlush = true; rafId = requestAnimationFrame(flushText); }
-      })
+      }, controller.signal)
         .then(() => {
           cancelAnimationFrame(rafId);
           setDisplayText(streamedText);
@@ -219,8 +230,16 @@ const Index = () => {
             setTimeout(() => tts.speak(streamedText), 300);
           }
         })
-        .catch((err: any) => toast.error("Erro na tradução: " + err.message))
-        .finally(() => setIsTranslating(false));
+        .catch((err: any) => {
+          if (err.name === 'AbortError') return; // Silently ignore aborted requests
+          toast.error("Erro na tradução: " + err.message);
+        })
+        .finally(() => {
+          if (abortRef.current === controller) {
+            setIsTranslating(false);
+            abortRef.current = null;
+          }
+        });
     } catch (err: any) {
       toast.error("Erro ao carregar: " + err.message);
       setIsLoading(false);
@@ -235,8 +254,15 @@ const Index = () => {
 
   const handleRetranslate = async () => {
     if (!chapter) return;
+    // Cancel any in-flight translation
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setIsTranslating(true);
-    tts.stop();
     tts.stop();
     try {
       setDisplayText("");
@@ -247,11 +273,12 @@ const Index = () => {
       await translateChapterStream(chapter.content, language, (delta) => {
         streamedText += delta;
         if (!needsFlush) { needsFlush = true; rafId = requestAnimationFrame(flushText); }
-      });
+      }, controller.signal);
       cancelAnimationFrame(rafId);
       setDisplayText(streamedText);
       toast.success("Tradução atualizada!");
     } catch (err: any) {
+      if (err.name === 'AbortError') return;
       toast.error("Erro: " + err.message);
     } finally {
       setIsTranslating(false);
