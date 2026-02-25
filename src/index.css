@@ -95,7 +95,8 @@
   }
 
   html {
-    /* Support safe areas on iOS notch devices */
+    /* Support safe areas on all devices (notch, nav bar, etc.) */
+    padding-top: env(safe-area-inset-top);
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
   }
@@ -104,4 +105,9 @@
     @apply bg-background text-foreground;
     font-family: var(--font-heading);
   }
+}
+
+/* Position toasts/notifications above system nav bar */
+[data-sonner-toaster] {
+  bottom: calc(1rem + env(safe-area-inset-bottom, 0px)) !important;
 }

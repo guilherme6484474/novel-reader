@@ -357,7 +357,6 @@ const Index = () => {
     setHistory((prev) => prev.filter((h) => h.id !== id));
   };
 
-  const safeAreaTop = 'max(env(safe-area-inset-top), 0px)';
   const safeAreaBottom = 'max(env(safe-area-inset-bottom), 0px)';
   const contentBottomPadding = chapter && displayText
     ? `calc(8.5rem + ${safeAreaBottom})`
@@ -367,8 +366,7 @@ const Index = () => {
     <div className="min-h-screen bg-background text-foreground transition-colors">
       {/* Header */}
       <header
-        className="sticky z-20 border-b border-border/60 bg-background/80 backdrop-blur-xl"
-        style={{ top: safeAreaTop }}
+        className="sticky top-0 z-20 border-b border-border/60 bg-background/80 backdrop-blur-xl"
       >
         <div className="mx-auto max-w-3xl px-4 sm:px-6 py-3 sm:py-4">
           {/* Top bar */}
