@@ -625,6 +625,12 @@ const Index = () => {
                   />
                   <span className="text-xs font-medium text-foreground w-10 text-right">{tts.pitch}</span>
                 </div>
+                {/* TTS Debug */}
+                <div className="mt-2 p-2 rounded-lg bg-muted/50 border border-border/40">
+                  <p className="text-[10px] font-mono text-muted-foreground break-all">
+                    🔧 {tts.debugInfo} | Voices: {tts.voices.length}
+                  </p>
+                </div>
               </div>
               {/* Cache */}
               <div>

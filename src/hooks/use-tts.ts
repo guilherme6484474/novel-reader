@@ -94,6 +94,7 @@ export function useTTS() {
   const [rate, setRate] = useState(() => Number(localStorage.getItem('nr-ttsRate')) || 1);
   const [pitch, setPitch] = useState(() => Number(localStorage.getItem('nr-ttsPitch')) || 1);
   const [activeCharIndex, setActiveCharIndex] = useState(-1);
+  const [debugInfo, setDebugInfo] = useState("Initializing...");
 
   const useNativeRef = useRef(isNative());
   const onEndCallbackRef = useRef<(() => void) | null>(null);
@@ -153,6 +154,7 @@ export function useTTS() {
     const loadNativeVoices = async () => {
       // Immediate fallback so the dropdown is never empty while native loading runs
       applyVoices(SYSTEM_DEFAULT_VOICES);
+      setDebugInfo(`Native=${useNativeRef.current}, WebSpeech=${typeof speechSynthesis !== 'undefined'}, loading...`);
 
       try {
         const timeoutMs = 8000;
@@ -168,10 +170,12 @@ export function useTTS() {
           voiceURI: v.voiceURI || '',
         }))));
 
-        console.log(`[TTS] Voices loaded: ${mapped.length} (native path)`);
+        const pluginCount = mapped.filter(v => !v.voiceURI.startsWith('__system_default')).length;
+        setDebugInfo(`OK: ${mapped.length} voices (${pluginCount} from engine). Native=${useNativeRef.current}`);
         applyVoices(mapped);
       } catch (err) {
         console.warn('[TTS] Failed loading voices, using defaults:', err);
+        setDebugInfo(`Error loading voices: ${err}. Using defaults.`);
         applyVoices(SYSTEM_DEFAULT_VOICES);
       }
     };
@@ -295,14 +299,16 @@ export function useTTS() {
       // For non-default voices, find their index (excluding system defaults)
       const realVoices = voices.filter(v => !v.voiceURI.startsWith('__system_default'));
       const voiceIndex = isSystemDefault ? -1 : realVoices.findIndex(v => v.name === selectedVoiceRef.current);
-      console.log(`[TTS] Speaking chunk ${chunkIndex}, voice: ${selectedV?.name || 'system'}, index: ${voiceIndex}, lang: ${selectedV?.lang}`);
-      await nativeSpeak({
+      const result = await nativeSpeak({
         text: chunkText,
         lang: selectedV?.lang || 'pt-BR',
         rate: rateRef.current,
         pitch: pitchRef.current,
         voice: voiceIndex >= 0 ? voiceIndex : undefined,
       });
+      if (chunkIndex === 0) {
+        setDebugInfo(prev => prev + ` | Engine: ${result.engine}`);
+      }
 
       // Calibrate CPS
       const actualDurationMs = performance.now() - chunkStartTimeRef.current;
@@ -525,5 +531,6 @@ export function useTTS() {
     isSpeaking, isPaused, progress, voices, selectedVoice,
     rate, setRate, pitch, setPitch, setSelectedVoice, speak, speakFromIndex, pause, resume, stop,
     activeCharIndex, setOnEnd, isNativeTTS: useNativeRef.current,
+    debugInfo,
   };
 }
