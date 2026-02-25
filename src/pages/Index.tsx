@@ -519,7 +519,27 @@ const Index = () => {
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Voz (TTS)</p>
                 <div className="flex items-center gap-3">
                   <span className="text-xs text-muted-foreground w-10">Voz</span>
-                  <Select value={tts.selectedVoice} onValueChange={tts.setSelectedVoice}>
+                  <Select value={tts.selectedVoice} onValueChange={(v) => {
+                      tts.setSelectedVoice(v);
+                      // Preview: speak a short sample in the voice's language
+                      const voice = tts.voices.find(vo => vo.name === v);
+                      const lang = voice?.lang?.split('-')[0] || 'pt';
+                      const samples: Record<string, string> = {
+                        pt: 'Olá, esta é a minha voz.',
+                        en: 'Hello, this is my voice.',
+                        es: 'Hola, esta es mi voz.',
+                        fr: 'Bonjour, voici ma voix.',
+                        ja: 'こんにちは、これが私の声です。',
+                        ko: '안녕하세요, 이것이 제 목소리입니다.',
+                        zh: '你好，这是我的声音。',
+                        de: 'Hallo, das ist meine Stimme.',
+                        it: 'Ciao, questa è la mia voce.',
+                        ru: 'Привет, это мой голос.',
+                      };
+                      const sample = samples[lang] || samples.pt;
+                      // Small delay to let the voice selection apply
+                      setTimeout(() => tts.speak(sample), 150);
+                    }}>
                     <SelectTrigger className="h-8 text-xs flex-1 rounded-lg bg-background">
                       <SelectValue />
                     </SelectTrigger>
