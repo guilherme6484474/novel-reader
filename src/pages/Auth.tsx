@@ -44,7 +44,7 @@ const Auth = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4" data-theme="light" style={{ '--background': '40 30% 97%', '--foreground': '30 10% 12%', '--card': '40 25% 95%', '--card-foreground': '30 10% 12%', '--primary': '25 80% 52%', '--primary-foreground': '40 30% 97%', '--muted': '35 15% 92%', '--muted-foreground': '30 8% 46%', '--border': '35 15% 88%', '--input': '35 15% 85%', '--ring': '25 80% 52%', background: 'hsl(40, 30%, 97%)', color: 'hsl(30, 10%, 12%)' } as React.CSSProperties}>
+    <div className="min-h-screen flex items-center justify-center px-4 pb-safe" data-theme="light" style={{ '--background': '40 30% 97%', '--foreground': '30 10% 12%', '--card': '40 25% 95%', '--card-foreground': '30 10% 12%', '--primary': '25 80% 52%', '--primary-foreground': '40 30% 97%', '--muted': '35 15% 92%', '--muted-foreground': '30 8% 46%', '--border': '35 15% 88%', '--input': '35 15% 85%', '--ring': '25 80% 52%', background: 'hsl(40, 30%, 97%)', color: 'hsl(30, 10%, 12%)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' } as React.CSSProperties}>
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 mx-auto mb-4">
