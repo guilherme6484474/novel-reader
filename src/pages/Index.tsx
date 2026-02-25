@@ -128,6 +128,7 @@ const Index = () => {
   const [displayText, setDisplayText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
+  const [translationProgress, setTranslationProgress] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   const [fontSize, setFontSize] = useState(() => Number(localStorage.getItem('nr-fontSize')) || 18);
   const [showHistory, setShowHistory] = useState(false);
@@ -141,6 +142,7 @@ const Index = () => {
   const navigate = useNavigate();
   const chapterRef = useRef<ChapterData | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const prefetchedRef = useRef<{ url: string; data: ChapterData } | null>(null);
 
   // Keep refs in sync
   useEffect(() => { autoReadRef.current = autoRead; }, [autoRead]);
@@ -188,12 +190,24 @@ const Index = () => {
       abortRef.current = null;
     }
 
+    // Scroll to top
+    window.scrollTo({ top: 0, behavior: 'instant' });
+
     setIsLoading(true);
     setIsTranslating(false);
+    setTranslationProgress(0);
     tts.stop();
     setShowHistory(false);
     try {
-      const data = await scrapeChapter(chapterUrl);
+      // Use prefetched data if available
+      let data: ChapterData;
+      if (prefetchedRef.current && prefetchedRef.current.url === chapterUrl) {
+        data = prefetchedRef.current.data;
+        prefetchedRef.current = null;
+      } else {
+        data = await scrapeChapter(chapterUrl);
+      }
+
       setChapter(data);
       setUrl(chapterUrl);
       setDisplayText(data.content);
@@ -214,23 +228,31 @@ const Index = () => {
       if (cached) {
         console.log("Translation loaded from cache");
         setDisplayText(cached);
+        setTranslationProgress(100);
         setIsTranslating(false);
         if (autoReadRef.current) {
           setTimeout(() => tts.speak(cached), 300);
         }
+        // Prefetch next chapter
+        prefetchNextChapter(data.nextChapterUrl);
         return;
       }
 
       // Translate with abort support
       const controller = new AbortController();
       abortRef.current = controller;
+      const originalLength = data.content.length;
 
       setIsTranslating(true);
       setDisplayText("");
       let streamedText = "";
       let rafId = 0;
       let needsFlush = false;
-      const flushText = () => { setDisplayText(streamedText); needsFlush = false; };
+      const flushText = () => {
+        setDisplayText(streamedText);
+        setTranslationProgress(Math.min(99, Math.round((streamedText.length / originalLength) * 100)));
+        needsFlush = false;
+      };
 
       translateChapterStream(data.content, language, (delta) => {
         streamedText += delta;
@@ -239,11 +261,13 @@ const Index = () => {
         .then(() => {
           cancelAnimationFrame(rafId);
           setDisplayText(streamedText);
-          // Save to cache
+          setTranslationProgress(100);
           setCachedTranslation(chapterUrl, language, streamedText);
           if (autoReadRef.current) {
             setTimeout(() => tts.speak(streamedText), 300);
           }
+          // Prefetch next chapter
+          prefetchNextChapter(data.nextChapterUrl);
         })
         .catch((err: any) => {
           if (err.name === 'AbortError') return;
@@ -259,6 +283,31 @@ const Index = () => {
       toast.error("Erro ao carregar: " + err.message);
       setIsLoading(false);
     }
+  };
+
+  // Prefetch next chapter in background
+  const prefetchNextChapter = (nextUrl: string | undefined) => {
+    if (!nextUrl) return;
+    // Don't prefetch if already prefetched
+    if (prefetchedRef.current?.url === nextUrl) return;
+    scrapeChapter(nextUrl)
+      .then((data) => {
+        prefetchedRef.current = { url: nextUrl, data };
+        console.log("Next chapter prefetched:", data.title);
+        // Also pre-translate to cache if not already cached
+        getCachedTranslation(nextUrl, language).then((cached) => {
+          if (!cached) {
+            let text = "";
+            translateChapterStream(data.content, language, (delta) => { text += delta; })
+              .then(() => {
+                setCachedTranslation(nextUrl, language, text);
+                console.log("Next chapter pre-translated and cached");
+              })
+              .catch(() => { /* silent - non-critical */ });
+          }
+        });
+      })
+      .catch(() => { /* silent - non-critical */ });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -694,9 +743,12 @@ const Index = () => {
                 {chapter.title}
               </h2>
               {isTranslating && (
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-medium">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  Traduzindo...
+                <div className="flex items-center gap-3">
+                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-medium">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Traduzindo... {translationProgress}%
+                  </div>
+                  <Progress value={translationProgress} className="flex-1 h-2 max-w-[200px]" />
                 </div>
               )}
             </header>
