@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { isNative, getNativeVoices, nativeSpeak, nativeStop, type NativeVoice } from "@/lib/native-tts";
+import { isNative, getNativeVoices, nativeSpeak, nativeStop } from "@/lib/native-tts";
 
 const MAX_CHUNK_CHARS = 80;
 
@@ -65,6 +65,26 @@ export interface TTSVoice {
   voiceURI: string;
 }
 
+function normalizeVoices(rawVoices: TTSVoice[]): TTSVoice[] {
+  const seen = new Map<string, number>();
+
+  return rawVoices
+    .map((voice, index) => {
+      const baseName = (voice.name || voice.voiceURI || `${voice.lang || 'Voice'} ${index + 1}`).trim();
+      const fallbackName = baseName || `Voice ${index + 1}`;
+      const occurrences = seen.get(fallbackName) || 0;
+      seen.set(fallbackName, occurrences + 1);
+
+      return {
+        ...voice,
+        name: occurrences > 0 ? `${fallbackName} #${occurrences + 1}` : fallbackName,
+        lang: (voice.lang || 'und').trim() || 'und',
+        voiceURI: voice.voiceURI || fallbackName,
+      };
+    })
+    .filter(v => v.name.trim().length > 0);
+}
+
 export function useTTS() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -100,43 +120,46 @@ export function useTTS() {
 
   // Load voices — native or web
   useEffect(() => {
+    const pickDefaultVoice = (available: TTSVoice[]) => {
+      if (available.length === 0) return;
+      setSelectedVoice(prev => {
+        if (prev && available.some(v => v.name === prev)) return prev;
+        const ptVoice = available.find(v => v.lang.startsWith('pt'));
+        return ptVoice?.name || available[0].name;
+      });
+    };
+
     if (useNativeRef.current) {
       // Load native Android/iOS voices
-      getNativeVoices().then(nv => {
-        const mapped: TTSVoice[] = nv.map(v => ({
-          name: v.name,
-          lang: v.lang,
-          localService: v.localService,
-          voiceURI: v.voiceURI || '',
-        }));
-        setVoices(mapped);
-        if (mapped.length > 0) {
-          setSelectedVoice(prev => {
-            if (prev && mapped.some(v => v.name === prev)) return prev;
-            const ptVoice = mapped.find(v => v.lang.startsWith('pt'));
-            return ptVoice?.name || mapped[0].name;
-          });
-        }
-      });
+      getNativeVoices()
+        .then(nv => {
+          const mapped = normalizeVoices(nv.map(v => ({
+            name: v.name,
+            lang: v.lang,
+            localService: v.localService,
+            voiceURI: v.voiceURI || '',
+          })));
+          console.log(`[TTS] Native voices normalized: ${mapped.length}`);
+          setVoices(mapped);
+          pickDefaultVoice(mapped);
+        })
+        .catch((err) => {
+          console.warn('[TTS] Failed loading native voices:', err);
+          setVoices([]);
+        });
     } else {
       // Web Speech API
       if (typeof speechSynthesis === 'undefined') return;
       const loadVoices = () => {
         const v = speechSynthesis.getVoices();
-        const mapped: TTSVoice[] = v.map(sv => ({
+        const mapped = normalizeVoices(v.map(sv => ({
           name: sv.name,
           lang: sv.lang,
           localService: sv.localService,
           voiceURI: sv.voiceURI || '',
-        }));
+        })));
         setVoices(mapped);
-        if (mapped.length > 0) {
-          setSelectedVoice(prev => {
-            if (prev && mapped.some(voice => voice.name === prev)) return prev;
-            const ptVoice = mapped.find(voice => voice.lang.startsWith('pt'));
-            return ptVoice?.name || mapped[0].name;
-          });
-        }
+        pickDefaultVoice(mapped);
       };
       loadVoices();
       speechSynthesis.onvoiceschanged = loadVoices;
