@@ -526,7 +526,7 @@ const Index = () => {
                     <SelectContent className="max-h-60">
                       {(() => {
                         // Group voices by language, prioritize current language
-                        const langMap = new Map<string, SpeechSynthesisVoice[]>();
+                        const langMap = new Map<string, typeof tts.voices[number][]>();
                         tts.voices.forEach(v => {
                           const lang = v.lang.split('-')[0];
                           if (!langMap.has(lang)) langMap.set(lang, []);
