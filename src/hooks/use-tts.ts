@@ -120,6 +120,8 @@ export function useTTS() {
 
   // Load voices — native or web
   useEffect(() => {
+    let cancelled = false;
+
     const SYSTEM_DEFAULT_VOICES: TTSVoice[] = [
       { name: '🔊 Voz padrão do sistema', lang: 'pt-BR', localService: true, voiceURI: '__system_default__' },
       { name: '🔊 System default voice', lang: 'en-US', localService: true, voiceURI: '__system_default_en__' },
@@ -134,6 +136,12 @@ export function useTTS() {
       });
     };
 
+    const applyVoices = (available: TTSVoice[]) => {
+      if (cancelled) return;
+      setVoices(available);
+      pickDefaultVoice(available);
+    };
+
     const ensureVoices = (mapped: TTSVoice[]): TTSVoice[] => {
       // Always guarantee at least the system default voices exist
       if (mapped.length === 0) return SYSTEM_DEFAULT_VOICES;
@@ -142,48 +150,61 @@ export function useTTS() {
       return mapped;
     };
 
-    if (useNativeRef.current) {
-      // Load native Android/iOS voices (includes fallback logic)
-      getNativeVoices()
-        .then(nv => {
-          const mapped = ensureVoices(normalizeVoices(nv.map(v => ({
-            name: v.name,
-            lang: v.lang,
-            localService: v.localService,
-            voiceURI: v.voiceURI || '',
-          }))));
-          console.log(`[TTS] Voices loaded: ${mapped.length} (native path)`);
-          setVoices(mapped);
-          pickDefaultVoice(mapped);
-        })
-        .catch((err) => {
-          console.warn('[TTS] Failed loading voices, using defaults:', err);
-          setVoices(SYSTEM_DEFAULT_VOICES);
-          pickDefaultVoice(SYSTEM_DEFAULT_VOICES);
+    const loadNativeVoices = async () => {
+      // Immediate fallback so the dropdown is never empty while native loading runs
+      applyVoices(SYSTEM_DEFAULT_VOICES);
+
+      try {
+        const timeoutMs = 8000;
+        const timeoutFallback = new Promise<Awaited<ReturnType<typeof getNativeVoices>>>((resolve) => {
+          setTimeout(() => resolve(SYSTEM_DEFAULT_VOICES), timeoutMs);
         });
-    } else {
-      // Web Speech API
-      if (typeof speechSynthesis === 'undefined') {
-        setVoices(SYSTEM_DEFAULT_VOICES);
-        pickDefaultVoice(SYSTEM_DEFAULT_VOICES);
-        return;
+
+        const nv = await Promise.race([getNativeVoices(), timeoutFallback]);
+        const mapped = ensureVoices(normalizeVoices(nv.map(v => ({
+          name: v.name,
+          lang: v.lang,
+          localService: v.localService,
+          voiceURI: v.voiceURI || '',
+        }))));
+
+        console.log(`[TTS] Voices loaded: ${mapped.length} (native path)`);
+        applyVoices(mapped);
+      } catch (err) {
+        console.warn('[TTS] Failed loading voices, using defaults:', err);
+        applyVoices(SYSTEM_DEFAULT_VOICES);
       }
-      const loadVoices = () => {
-        const v = speechSynthesis.getVoices();
-        const mapped = normalizeVoices(v.map(sv => ({
-          name: sv.name,
-          lang: sv.lang,
-          localService: sv.localService,
-          voiceURI: sv.voiceURI || '',
-        })));
-        const final = ensureVoices(mapped);
-        setVoices(final);
-        pickDefaultVoice(final);
-      };
-      loadVoices();
-      speechSynthesis.onvoiceschanged = loadVoices;
-      return () => { speechSynthesis.onvoiceschanged = null; };
+    };
+
+    if (useNativeRef.current) {
+      loadNativeVoices();
+      return () => { cancelled = true; };
     }
+
+    // Web Speech API
+    if (typeof speechSynthesis === 'undefined') {
+      applyVoices(SYSTEM_DEFAULT_VOICES);
+      return () => { cancelled = true; };
+    }
+
+    const loadVoices = () => {
+      const v = speechSynthesis.getVoices();
+      const mapped = normalizeVoices(v.map(sv => ({
+        name: sv.name,
+        lang: sv.lang,
+        localService: sv.localService,
+        voiceURI: sv.voiceURI || '',
+      })));
+      const final = ensureVoices(mapped);
+      applyVoices(final);
+    };
+
+    loadVoices();
+    speechSynthesis.onvoiceschanged = loadVoices;
+    return () => {
+      cancelled = true;
+      speechSynthesis.onvoiceschanged = null;
+    };
   }, []);
 
   const clearWordTimer = useCallback(() => {

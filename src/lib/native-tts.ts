@@ -59,6 +59,21 @@ function getWebSpeechVoices(): NativeVoice[] {
   return [];
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`[NativeTTS] ${label} timeout after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export async function getNativeVoices(): Promise<NativeVoice[]> {
   const plugin = await getPlugin();
 
@@ -67,7 +82,7 @@ export async function getNativeVoices(): Promise<NativeVoice[]> {
     for (let attempt = 0; attempt < 8; attempt++) {
       try {
         console.log(`[NativeTTS] Loading voices, attempt ${attempt + 1}...`);
-        const result = await plugin.getSupportedVoices();
+        const result = await withTimeout(plugin.getSupportedVoices(), 1500, 'getSupportedVoices');
         const voices = result.voices || [];
         console.log(`[NativeTTS] Attempt ${attempt + 1}: got ${voices.length} voices`);
 
@@ -89,7 +104,7 @@ export async function getNativeVoices(): Promise<NativeVoice[]> {
 
     // Try getSupportedLanguages as secondary fallback
     try {
-      const langResult = await plugin.getSupportedLanguages();
+      const langResult = await withTimeout(plugin.getSupportedLanguages(), 1500, 'getSupportedLanguages');
       const languages = langResult.languages || [];
       console.log('[NativeTTS] Language fallback:', languages);
       if (languages.length > 0) {
