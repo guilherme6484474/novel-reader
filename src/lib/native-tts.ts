@@ -155,73 +155,126 @@ export async function nativeSpeak(options: {
   pitch?: number;
   voice?: number;
 }): Promise<{ engine: string }> {
+  // ─── Strategy 1: Try Web Speech API FIRST (more reliable in Android WebView) ───
+  const webResult = await tryWebSpeech(options);
+  if (webResult) return webResult;
+
+  // ─── Strategy 2: Try native Capacitor plugin ───
   const plugin = await getPlugin();
-
-  // ─── Try native plugin ───
   if (plugin) {
-    const speakOptions: any = {
-      text: options.text,
-      lang: options.lang || 'pt-BR',
-      rate: options.rate || 1.0,
-      pitch: options.pitch || 1.0,
-      volume: 1.0,
-      category: 'ambient',
-      queueStrategy: 1,
-    };
-
-    if (options.voice !== undefined && options.voice >= 0) {
-      speakOptions.voice = options.voice;
-    }
-
     try {
-      await plugin.speak(speakOptions);
+      // Minimal options — remove category/queueStrategy that may cause silent failures
+      const speakOptions: any = {
+        text: options.text,
+        lang: options.lang || 'pt-BR',
+        rate: options.rate || 1.0,
+        pitch: options.pitch || 1.0,
+        volume: 1.0,
+      };
+
+      if (options.voice !== undefined && options.voice >= 0) {
+        speakOptions.voice = options.voice;
+      }
+
+      console.log('[NativeTTS] Trying plugin.speak with:', JSON.stringify(speakOptions));
+      await withTimeout(plugin.speak(speakOptions), 30000, 'plugin.speak');
       return { engine: 'capacitor-plugin' };
     } catch (e) {
-      console.warn('[NativeTTS] Plugin speak failed, trying Web Speech fallback:', e);
+      console.warn('[NativeTTS] Plugin speak failed:', e);
     }
   }
 
-  // ─── Fallback: Web Speech API ───
+  throw new Error('No TTS engine produced audio');
+}
+
+/**
+ * Try speaking with Web Speech API. Returns result or null if unavailable.
+ */
+function tryWebSpeech(options: {
+  text: string;
+  lang?: string;
+  rate?: number;
+  pitch?: number;
+}): Promise<{ engine: string } | null> {
   if (typeof speechSynthesis === 'undefined') {
-    throw new Error('No TTS engine available');
+    console.log('[NativeTTS] speechSynthesis not available');
+    return Promise.resolve(null);
   }
 
-  return new Promise<{ engine: string }>((resolve, reject) => {
-    // Ensure voices are loaded
-    let voices = speechSynthesis.getVoices();
-    
+  return new Promise<{ engine: string } | null>((resolve) => {
+    // Cancel any ongoing speech first
+    try { speechSynthesis.cancel(); } catch {}
+
     const doSpeak = () => {
-      voices = speechSynthesis.getVoices();
-      const utterance = new SpeechSynthesisUtterance(options.text);
-      utterance.lang = options.lang || 'pt-BR';
-      utterance.rate = options.rate || 1.0;
-      utterance.pitch = options.pitch || 1.0;
+      try {
+        const voices = speechSynthesis.getVoices();
+        console.log(`[NativeTTS] WebSpeech doSpeak: ${voices.length} voices available`);
 
-      // Try to find a matching voice
-      const langPrefix = options.lang?.split('-')[0] || 'pt';
-      const match = voices.find(v => v.lang.startsWith(langPrefix));
-      if (match) utterance.voice = match;
+        const utterance = new SpeechSynthesisUtterance(options.text);
+        utterance.lang = options.lang || 'pt-BR';
+        utterance.rate = options.rate || 1.0;
+        utterance.pitch = options.pitch || 1.0;
+        utterance.volume = 1.0;
 
-      utterance.onend = () => resolve({ engine: `webSpeech(${match?.name || 'default'})` });
-      utterance.onerror = (e) => {
-        if (e.error === 'canceled' || e.error === 'interrupted') resolve({ engine: 'webSpeech-canceled' });
-        else reject(new Error(`WebSpeech error: ${e.error}`));
-      };
+        // Try to find a matching voice
+        const langPrefix = options.lang?.split('-')[0] || 'pt';
+        const match = voices.find(v => v.lang.startsWith(langPrefix));
+        if (match) {
+          utterance.voice = match;
+          console.log(`[NativeTTS] Using WebSpeech voice: ${match.name} (${match.lang})`);
+        }
 
-      speechSynthesis.speak(utterance);
+        let settled = false;
+        const settle = (result: { engine: string } | null) => {
+          if (settled) return;
+          settled = true;
+          resolve(result);
+        };
+
+        utterance.onend = () => settle({ engine: `webSpeech(${match?.name || 'default'})` });
+        utterance.onerror = (e) => {
+          console.warn('[NativeTTS] WebSpeech error:', e.error);
+          if (e.error === 'canceled' || e.error === 'interrupted') {
+            settle({ engine: 'webSpeech-canceled' });
+          } else {
+            settle(null); // Let caller try next engine
+          }
+        };
+
+        // Safety timeout — if nothing happens in 10s, consider it failed
+        setTimeout(() => {
+          if (!settled) {
+            console.warn('[NativeTTS] WebSpeech timeout, no onend/onerror fired');
+            settle(null);
+          }
+        }, 10000);
+
+        speechSynthesis.speak(utterance);
+        console.log('[NativeTTS] speechSynthesis.speak() called');
+      } catch (e) {
+        console.warn('[NativeTTS] WebSpeech doSpeak exception:', e);
+        resolve(null);
+      }
     };
 
-    // If voices not loaded yet, wait for them
+    // Ensure voices are loaded
+    const voices = speechSynthesis.getVoices();
     if (voices.length === 0) {
+      console.log('[NativeTTS] No voices yet, waiting for onvoiceschanged...');
+      let waited = false;
       speechSynthesis.onvoiceschanged = () => {
+        if (waited) return;
+        waited = true;
         speechSynthesis.onvoiceschanged = null;
         doSpeak();
       };
-      // Timeout in case onvoiceschanged never fires
       setTimeout(() => {
-        speechSynthesis.onvoiceschanged = null;
-        doSpeak();
-      }, 1000);
+        if (!waited) {
+          waited = true;
+          speechSynthesis.onvoiceschanged = null;
+          doSpeak();
+        }
+      }, 1500);
     } else {
       doSpeak();
     }
