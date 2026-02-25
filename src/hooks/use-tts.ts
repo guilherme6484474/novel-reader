@@ -120,6 +120,11 @@ export function useTTS() {
 
   // Load voices — native or web
   useEffect(() => {
+    const SYSTEM_DEFAULT_VOICES: TTSVoice[] = [
+      { name: '🔊 Voz padrão do sistema', lang: 'pt-BR', localService: true, voiceURI: '__system_default__' },
+      { name: '🔊 System default voice', lang: 'en-US', localService: true, voiceURI: '__system_default_en__' },
+    ];
+
     const pickDefaultVoice = (available: TTSVoice[]) => {
       if (available.length === 0) return;
       setSelectedVoice(prev => {
@@ -129,27 +134,40 @@ export function useTTS() {
       });
     };
 
+    const ensureVoices = (mapped: TTSVoice[]): TTSVoice[] => {
+      // Always guarantee at least the system default voices exist
+      if (mapped.length === 0) return SYSTEM_DEFAULT_VOICES;
+      // If system defaults are already included (from native-tts), keep as-is
+      if (mapped.some(v => v.voiceURI.startsWith('__system_default'))) return mapped;
+      return mapped;
+    };
+
     if (useNativeRef.current) {
-      // Load native Android/iOS voices
+      // Load native Android/iOS voices (includes fallback logic)
       getNativeVoices()
         .then(nv => {
-          const mapped = normalizeVoices(nv.map(v => ({
+          const mapped = ensureVoices(normalizeVoices(nv.map(v => ({
             name: v.name,
             lang: v.lang,
             localService: v.localService,
             voiceURI: v.voiceURI || '',
-          })));
-          console.log(`[TTS] Native voices normalized: ${mapped.length}`);
+          }))));
+          console.log(`[TTS] Voices loaded: ${mapped.length} (native path)`);
           setVoices(mapped);
           pickDefaultVoice(mapped);
         })
         .catch((err) => {
-          console.warn('[TTS] Failed loading native voices:', err);
-          setVoices([]);
+          console.warn('[TTS] Failed loading voices, using defaults:', err);
+          setVoices(SYSTEM_DEFAULT_VOICES);
+          pickDefaultVoice(SYSTEM_DEFAULT_VOICES);
         });
     } else {
       // Web Speech API
-      if (typeof speechSynthesis === 'undefined') return;
+      if (typeof speechSynthesis === 'undefined') {
+        setVoices(SYSTEM_DEFAULT_VOICES);
+        pickDefaultVoice(SYSTEM_DEFAULT_VOICES);
+        return;
+      }
       const loadVoices = () => {
         const v = speechSynthesis.getVoices();
         const mapped = normalizeVoices(v.map(sv => ({
@@ -158,8 +176,9 @@ export function useTTS() {
           localService: sv.localService,
           voiceURI: sv.voiceURI || '',
         })));
-        setVoices(mapped);
-        pickDefaultVoice(mapped);
+        const final = ensureVoices(mapped);
+        setVoices(final);
+        pickDefaultVoice(final);
       };
       loadVoices();
       speechSynthesis.onvoiceschanged = loadVoices;
@@ -249,10 +268,13 @@ export function useTTS() {
     startWordStepper(chunkText, globalOffset, rateRef.current);
 
     try {
-      // Find the selected voice and its index for Android native TTS
+      // Find the selected voice — skip voice index for system defaults
       const selectedV = voices.find(v => v.name === selectedVoiceRef.current);
-      const voiceIndex = voices.findIndex(v => v.name === selectedVoiceRef.current);
-      console.log(`[TTS] Speaking chunk ${chunkIndex} with voice: ${selectedV?.name} (index: ${voiceIndex}, lang: ${selectedV?.lang})`);
+      const isSystemDefault = !selectedV || selectedV.voiceURI.startsWith('__system_default');
+      // For non-default voices, find their index (excluding system defaults)
+      const realVoices = voices.filter(v => !v.voiceURI.startsWith('__system_default'));
+      const voiceIndex = isSystemDefault ? -1 : realVoices.findIndex(v => v.name === selectedVoiceRef.current);
+      console.log(`[TTS] Speaking chunk ${chunkIndex}, voice: ${selectedV?.name || 'system'}, index: ${voiceIndex}, lang: ${selectedV?.lang}`);
       await nativeSpeak({
         text: chunkText,
         lang: selectedV?.lang || 'pt-BR',
