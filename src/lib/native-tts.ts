@@ -74,6 +74,74 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
   }
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error ?? 'Unknown error');
+}
+
+function isNoEngineError(message: string): boolean {
+  return message.includes('not available on this device') || message.includes('not supported on this device');
+}
+
+async function resolveBestPluginLanguage(
+  plugin: NonNullable<Awaited<ReturnType<typeof getPlugin>>>,
+  requestedLang?: string,
+): Promise<string> {
+  const requested = (requestedLang || '').trim();
+  const requestedBase = requested.includes('-') ? requested.split('-')[0] : requested;
+  const deviceLang = (typeof navigator !== 'undefined' ? navigator.language : '').trim();
+  const deviceBase = deviceLang.includes('-') ? deviceLang.split('-')[0] : deviceLang;
+
+  const candidates = Array.from(new Set([
+    requested,
+    requestedBase,
+    deviceLang,
+    deviceBase,
+    'en-US',
+    'en',
+  ].filter(Boolean)));
+
+  for (const lang of candidates) {
+    try {
+      const result = await plugin.isLanguageSupported({ lang });
+      if (result.supported) return lang;
+    } catch {
+      // Ignore and try next candidate
+    }
+  }
+
+  try {
+    const langResult = await withTimeout(plugin.getSupportedLanguages(), 1500, 'getSupportedLanguages');
+    const languages = (langResult.languages || []).filter(Boolean);
+    if (languages.length > 0) {
+      const exactRequested = requested ? languages.find(l => l.toLowerCase() === requested.toLowerCase()) : undefined;
+      if (exactRequested) return exactRequested;
+
+      const requestedPrefix = requestedBase?.toLowerCase();
+      if (requestedPrefix) {
+        const prefByRequested = languages.find(l => l.toLowerCase().startsWith(requestedPrefix));
+        if (prefByRequested) return prefByRequested;
+      }
+
+      const devicePrefix = deviceBase?.toLowerCase();
+      if (devicePrefix) {
+        const prefByDevice = languages.find(l => l.toLowerCase().startsWith(devicePrefix));
+        if (prefByDevice) return prefByDevice;
+      }
+
+      return languages[0];
+    }
+  } catch {
+    // Fall through to final default
+  }
+
+  return requested || deviceLang || 'en-US';
+}
+
 export async function getNativeVoices(): Promise<NativeVoice[]> {
   const plugin = await getPlugin();
 
@@ -94,12 +162,12 @@ export async function getNativeVoices(): Promise<NativeVoice[]> {
             voiceURI: v.voiceURI || v.name || '',
           }));
           console.log('[NativeTTS] Plugin voices loaded:', mapped.length);
-          return [...FALLBACK_VOICES, ...mapped];
+          return [...mapped, ...FALLBACK_VOICES];
         }
       } catch (e) {
         console.warn(`[NativeTTS] attempt ${attempt + 1} failed:`, e);
       }
-      await new Promise(r => setTimeout(r, 500));
+      await sleep(500);
     }
 
     // Try getSupportedLanguages as secondary fallback
@@ -114,7 +182,7 @@ export async function getNativeVoices(): Promise<NativeVoice[]> {
           localService: true,
           voiceURI: '',
         }));
-        return [...FALLBACK_VOICES, ...langVoices];
+        return [...langVoices, ...FALLBACK_VOICES];
       }
     } catch (e) {
       console.warn('[NativeTTS] Language fallback failed:', e);
@@ -125,16 +193,16 @@ export async function getNativeVoices(): Promise<NativeVoice[]> {
   console.log('[NativeTTS] Trying Web Speech API fallback...');
   const webVoices = getWebSpeechVoices();
   if (webVoices.length > 0) {
-    return [...FALLBACK_VOICES, ...webVoices];
+    return [...webVoices, ...FALLBACK_VOICES];
   }
 
   // If speechSynthesis exists but voices aren't loaded yet, wait and retry
   if (typeof speechSynthesis !== 'undefined') {
     for (let attempt = 0; attempt < 5; attempt++) {
-      await new Promise(r => setTimeout(r, 600));
+      await sleep(600);
       const delayed = getWebSpeechVoices();
       if (delayed.length > 0) {
-        return [...FALLBACK_VOICES, ...delayed];
+        return [...delayed, ...FALLBACK_VOICES];
       }
     }
   }
@@ -142,6 +210,19 @@ export async function getNativeVoices(): Promise<NativeVoice[]> {
   // ─── Last resort: return guaranteed fallback voices ───
   console.warn('[NativeTTS] All voice loading methods failed, returning fallback voices');
   return FALLBACK_VOICES;
+}
+
+export async function openNativeTtsInstall(): Promise<boolean> {
+  const plugin = await getPlugin();
+  if (!plugin || !isNative()) return false;
+
+  try {
+    await plugin.openInstall();
+    return true;
+  } catch (error) {
+    console.warn('[NativeTTS] Failed to open TTS install/settings:', error);
+    return false;
+  }
 }
 
 /**
@@ -158,25 +239,48 @@ export async function nativeSpeak(options: {
   // ─── Strategy 1: Try native Capacitor plugin FIRST ───
   const plugin = await getPlugin();
   if (plugin) {
-    try {
-      const speakOptions: any = {
-        text: options.text,
-        lang: options.lang || 'pt-BR',
-        rate: options.rate || 1.0,
-        pitch: options.pitch || 1.0,
-        volume: 1.0,
-      };
+    let requestedLang = options.lang;
 
-      // Only set voice index for non-system-default voices
-      if (options.voice !== undefined && options.voice >= 0) {
-        speakOptions.voice = options.voice;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const resolvedLang = await resolveBestPluginLanguage(plugin, requestedLang);
+        const speakOptions: any = {
+          text: options.text,
+          lang: resolvedLang,
+          rate: options.rate || 1.0,
+          pitch: options.pitch || 1.0,
+          volume: 1.0,
+        };
+
+        // Only set voice index for non-system-default voices
+        if (options.voice !== undefined && options.voice >= 0) {
+          speakOptions.voice = options.voice;
+        }
+
+        console.log('[NativeTTS] Trying plugin.speak with:', JSON.stringify(speakOptions));
+        await withTimeout(plugin.speak(speakOptions), 30000, 'plugin.speak');
+        return { engine: `capacitor-plugin(${resolvedLang})` };
+      } catch (error) {
+        const message = getErrorMessage(error);
+        const lower = message.toLowerCase();
+        console.warn(`[NativeTTS] Plugin speak failed (attempt ${attempt + 1}):`, message);
+
+        if (lower.includes('this language is not supported')) {
+          requestedLang = undefined;
+          continue;
+        }
+
+        if (lower.includes('not yet initialized')) {
+          await sleep(450);
+          continue;
+        }
+
+        if (isNoEngineError(lower)) {
+          await openNativeTtsInstall();
+        }
+
+        break;
       }
-
-      console.log('[NativeTTS] Trying plugin.speak with:', JSON.stringify(speakOptions));
-      await withTimeout(plugin.speak(speakOptions), 30000, 'plugin.speak');
-      return { engine: 'capacitor-plugin' };
-    } catch (e) {
-      console.warn('[NativeTTS] Plugin speak failed:', e);
     }
   }
 
@@ -184,7 +288,7 @@ export async function nativeSpeak(options: {
   const webResult = await tryWebSpeech(options);
   if (webResult) return webResult;
 
-  throw new Error('No TTS engine produced audio');
+  throw new Error('No TTS engine produced audio. Install/enable an Android TTS engine.');
 }
 
 /**

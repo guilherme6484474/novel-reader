@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { isNative, getNativeVoices, nativeSpeak, nativeStop } from "@/lib/native-tts";
+import { isNative, getNativeVoices, nativeSpeak, nativeStop, openNativeTtsInstall } from "@/lib/native-tts";
 
 const MAX_CHUNK_CHARS = 80;
 
@@ -110,6 +110,7 @@ export function useTTS() {
   const chunkStartTimeRef = useRef(0);
   const calibratedCpsRef = useRef(Number(localStorage.getItem('nr-ttsCps')) || 0);
   const calibratedRateRef = useRef(Number(localStorage.getItem('nr-ttsCpsRate')) || 1);
+  const installPromptShownRef = useRef(false);
 
   const selectedVoiceRef = useRef(selectedVoice);
   const rateRef = useRef(rate);
@@ -132,8 +133,18 @@ export function useTTS() {
       if (available.length === 0) return;
       setSelectedVoice(prev => {
         if (prev && available.some(v => v.name === prev)) return prev;
-        const ptVoice = available.find(v => v.lang.startsWith('pt'));
-        return ptVoice?.name || available[0].name;
+
+        const nonSystemVoices = available.filter(v => !v.voiceURI.startsWith('__system_default'));
+        const pool = nonSystemVoices.length > 0 ? nonSystemVoices : available;
+
+        const deviceLang = (typeof navigator !== 'undefined' ? navigator.language : '').toLowerCase();
+        const langPrefix = deviceLang.split('-')[0];
+
+        const exactDevice = pool.find(v => v.lang.toLowerCase() === deviceLang);
+        const sameFamily = langPrefix ? pool.find(v => v.lang.toLowerCase().startsWith(langPrefix)) : undefined;
+        const ptVoice = pool.find(v => v.lang.startsWith('pt'));
+
+        return exactDevice?.name || sameFamily?.name || ptVoice?.name || pool[0].name;
       });
     };
 
@@ -171,7 +182,11 @@ export function useTTS() {
         }))));
 
         const pluginCount = mapped.filter(v => !v.voiceURI.startsWith('__system_default')).length;
-        setDebugInfo(`OK: ${mapped.length} voices (${pluginCount} from engine). Native=${useNativeRef.current}`);
+        setDebugInfo(
+          pluginCount > 0
+            ? `OK: ${mapped.length} voices (${pluginCount} from engine). Native=${useNativeRef.current}`
+            : `Sem vozes reais do motor Android. Usando fallback do sistema (${mapped.length}).`
+        );
         applyVoices(mapped);
       } catch (err) {
         console.warn('[TTS] Failed loading voices, using defaults:', err);
@@ -301,7 +316,7 @@ export function useTTS() {
       const voiceIndex = isSystemDefault ? -1 : realVoices.findIndex(v => v.name === selectedVoiceRef.current);
       const result = await nativeSpeak({
         text: chunkText,
-        lang: selectedV?.lang || 'pt-BR',
+        lang: selectedV?.lang || (typeof navigator !== 'undefined' ? navigator.language : 'en-US'),
         rate: rateRef.current,
         pitch: pitchRef.current,
         voice: voiceIndex >= 0 ? voiceIndex : undefined,
@@ -329,7 +344,17 @@ export function useTTS() {
       }
     } catch (e) {
       if (cancelingRef.current) return;
-      console.warn('[NativeTTS] speak error:', e);
+      const message = e instanceof Error ? e.message : String(e);
+      console.warn('[NativeTTS] speak error:', message);
+
+      if (/install\/enable an android tts engine|not available on this device|not yet initialized/i.test(message)) {
+        setDebugInfo('Motor TTS Android indisponível. Abrindo instalação/configuração do motor de voz...');
+        if (!installPromptShownRef.current) {
+          installPromptShownRef.current = true;
+          void openNativeTtsInstall();
+        }
+      }
+
       clearWordTimer();
       speakingRef.current = false;
       setIsSpeaking(false);
