@@ -457,18 +457,47 @@ export function useTTS() {
     }
   }, [speakChunkNative, speakChunkWeb]);
 
-  const speakFromIndex = useCallback((text: string, startCharIndex = 0) => {
+  const cancelCurrentSpeech = useCallback(async (resetUi: boolean) => {
     cancelingRef.current = true;
+    speakingRef.current = false;
+    pausedRef.current = false;
+
     if (useNativeRef.current) {
-      nativeStop();
+      try {
+        await nativeStop();
+      } catch {
+        // ignore
+      }
     } else if (typeof speechSynthesis !== 'undefined') {
       speechSynthesis.cancel();
     }
+
     clearWordTimer();
     cancelingRef.current = false;
+    chunksRef.current = [];
+    chunkOffsetsRef.current = [];
+
+    if (resetUi) {
+      setIsSpeaking(false);
+      setIsPaused(false);
+      setProgress(0);
+      setActiveCharIndex(-1);
+    }
+  }, [clearWordTimer]);
+
+  const speakFromIndex = useCallback(async (text: string, startCharIndex = 0) => {
+    await cancelCurrentSpeech(false);
 
     const textToSpeak = text.slice(startCharIndex);
     textRef.current = text;
+
+    if (!textToSpeak.trim()) {
+      setIsSpeaking(false);
+      setIsPaused(false);
+      setProgress(0);
+      setActiveCharIndex(-1);
+      return;
+    }
 
     const chunks = splitIntoSentences(textToSpeak);
     chunksRef.current = chunks;
@@ -488,16 +517,16 @@ export function useTTS() {
     setActiveCharIndex(startCharIndex);
 
     speakChunk(0);
-  }, [speakChunk, clearWordTimer]);
+  }, [speakChunk, cancelCurrentSpeech]);
 
-  const speak = useCallback((text: string) => {
-    speakFromIndex(text, 0);
+  const speak = useCallback(async (text: string) => {
+    await speakFromIndex(text, 0);
   }, [speakFromIndex]);
 
   const pause = useCallback(() => {
     // Native TTS plugin doesn't support pause — we stop and track position
     if (useNativeRef.current) {
-      nativeStop();
+      void nativeStop();
       pausedRef.current = true;
       clearWordTimer();
       setIsPaused(true);
@@ -532,26 +561,11 @@ export function useTTS() {
         startWordStepper(chunk, offset, rateRef.current);
       }
     }
-  }, [startWordStepper, clearWordTimer, speakChunk]);
+  }, [startWordStepper, speakChunk]);
 
-  const stop = useCallback(() => {
-    cancelingRef.current = true;
-    speakingRef.current = false;
-    pausedRef.current = false;
-    if (useNativeRef.current) {
-      nativeStop();
-    } else if (typeof speechSynthesis !== 'undefined') {
-      speechSynthesis.cancel();
-    }
-    clearWordTimer();
-    cancelingRef.current = false;
-    chunksRef.current = [];
-    chunkOffsetsRef.current = [];
-    setIsSpeaking(false);
-    setIsPaused(false);
-    setProgress(0);
-    setActiveCharIndex(-1);
-  }, [clearWordTimer]);
+  const stop = useCallback(async () => {
+    await cancelCurrentSpeech(true);
+  }, [cancelCurrentSpeech]);
 
   return {
     isSpeaking, isPaused, progress, voices, selectedVoice,

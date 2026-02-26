@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, RefreshCw, Settings2, Volume2 } from "lucide-react";
 import type { TTSDiagnostics as DiagData } from "@/lib/native-tts";
@@ -10,13 +10,15 @@ interface TTSDiagnosticsProps {
   openInstall: () => Promise<boolean>;
 }
 
+const REFRESH_INTERVAL_MS = 3000;
+
 export function TTSDiagnosticsPanel({ debugInfo, voiceCount, runDiagnostics, openInstall }: TTSDiagnosticsProps) {
   const [showDiag, setShowDiag] = useState(false);
   const [diagData, setDiagData] = useState<DiagData | null>(null);
   const [diagError, setDiagError] = useState<string | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
 
-  const handleRunDiag = async () => {
+  const handleRunDiag = useCallback(async () => {
     setDiagLoading(true);
     setDiagError(null);
     try {
@@ -24,9 +26,19 @@ export function TTSDiagnosticsPanel({ debugInfo, voiceCount, runDiagnostics, ope
       setDiagData(result);
     } catch (err: any) {
       setDiagError(err.message);
+    } finally {
+      setDiagLoading(false);
     }
-    setDiagLoading(false);
-  };
+  }, [runDiagnostics]);
+
+  useEffect(() => {
+    if (!showDiag) return;
+    void handleRunDiag();
+    const interval = setInterval(() => {
+      void handleRunDiag();
+    }, REFRESH_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [showDiag, handleRunDiag]);
 
   return (
     <div className="mt-3 space-y-2">
@@ -38,7 +50,7 @@ export function TTSDiagnosticsPanel({ debugInfo, voiceCount, runDiagnostics, ope
       <div className="flex gap-2">
         <Button
           variant="outline" size="sm"
-          onClick={() => { setShowDiag(!showDiag); if (!showDiag && !diagData) handleRunDiag(); }}
+          onClick={() => setShowDiag(!showDiag)}
           className="rounded-lg gap-1.5 text-xs border-border/60"
         >
           <Settings2 className="h-3 w-3" />
@@ -57,7 +69,7 @@ export function TTSDiagnosticsPanel({ debugInfo, voiceCount, runDiagnostics, ope
       {showDiag && (
         <div className="p-3 rounded-lg bg-card border border-border/60 space-y-2 animate-fade-in">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-foreground">Diagnóstico do Motor TTS</p>
+            <p className="text-xs font-semibold text-foreground">Diagnóstico do Motor TTS (tempo real)</p>
             <Button variant="ghost" size="sm" onClick={handleRunDiag} disabled={diagLoading} className="h-6 px-2 text-[10px]">
               {diagLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
             </Button>
@@ -66,23 +78,23 @@ export function TTSDiagnosticsPanel({ debugInfo, voiceCount, runDiagnostics, ope
             <div className="text-[11px] font-mono space-y-1.5 text-muted-foreground">
               <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                 <span>Plataforma nativa:</span>
-                <span className={diagData.isNativePlatform ? 'text-green-500' : 'text-yellow-500'}>
+                <span className={diagData.isNativePlatform ? 'text-primary' : 'text-muted-foreground'}>
                   {diagData.isNativePlatform ? '✅ Sim' : '⚠️ Web'}
                 </span>
                 <span>Plugin Capacitor:</span>
-                <span className={diagData.pluginAvailable ? 'text-green-500' : 'text-destructive'}>
+                <span className={diagData.pluginAvailable ? 'text-primary' : 'text-destructive'}>
                   {diagData.pluginAvailable ? '✅ Disponível' : '❌ Indisponível'}
                 </span>
                 <span>Engine pronto:</span>
-                <span className={diagData.pluginReady ? 'text-green-500' : 'text-yellow-500'}>
+                <span className={diagData.pluginReady ? 'text-primary' : 'text-muted-foreground'}>
                   {diagData.pluginReady ? '✅ Sim' : '⏳ Não/Inicializando'}
                 </span>
                 <span>Vozes plugin:</span>
-                <span className={diagData.voiceCount > 0 ? 'text-green-500' : 'text-yellow-500'}>
+                <span className={diagData.voiceCount > 0 ? 'text-primary' : 'text-muted-foreground'}>
                   {diagData.voiceCount}
                 </span>
                 <span>WebSpeech API:</span>
-                <span className={diagData.webSpeechAvailable ? 'text-green-500' : 'text-destructive'}>
+                <span className={diagData.webSpeechAvailable ? 'text-primary' : 'text-destructive'}>
                   {diagData.webSpeechAvailable ? `✅ ${diagData.webSpeechVoiceCount} vozes` : '❌ Indisponível'}
                 </span>
               </div>
