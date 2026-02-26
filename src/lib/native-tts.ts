@@ -225,6 +225,57 @@ export async function openNativeTtsInstall(): Promise<boolean> {
   }
 }
 
+export interface TTSDiagnostics {
+  isNativePlatform: boolean;
+  pluginAvailable: boolean;
+  pluginReady: boolean;
+  supportedLanguages: string[];
+  voiceCount: number;
+  webSpeechAvailable: boolean;
+  webSpeechVoiceCount: number;
+  lastError: string | null;
+}
+
+let lastDiagError: string | null = null;
+export function setDiagError(msg: string) { lastDiagError = msg; }
+
+export async function runTTSDiagnostics(): Promise<TTSDiagnostics> {
+  const diag: TTSDiagnostics = {
+    isNativePlatform: isNative(),
+    pluginAvailable: false,
+    pluginReady: false,
+    supportedLanguages: [],
+    voiceCount: 0,
+    webSpeechAvailable: typeof speechSynthesis !== 'undefined',
+    webSpeechVoiceCount: 0,
+    lastError: lastDiagError,
+  };
+
+  try {
+    const plugin = await getPlugin();
+    diag.pluginAvailable = !!plugin;
+
+    if (plugin) {
+      try {
+        const langResult = await withTimeout(plugin.getSupportedLanguages(), 2000, 'diag-langs');
+        diag.supportedLanguages = (langResult.languages || []).sort();
+        diag.pluginReady = true;
+      } catch { /* not ready */ }
+
+      try {
+        const voiceResult = await withTimeout(plugin.getSupportedVoices(), 2000, 'diag-voices');
+        diag.voiceCount = (voiceResult.voices || []).length;
+      } catch { /* ignore */ }
+    }
+  } catch { /* ignore */ }
+
+  if (diag.webSpeechAvailable) {
+    try { diag.webSpeechVoiceCount = speechSynthesis.getVoices().length; } catch {}
+  }
+
+  return diag;
+}
+
 /**
  * Speak text — tries native plugin first, falls back to Web Speech API.
  * Returns info about which engine was used.

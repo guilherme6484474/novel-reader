@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { isNative, getNativeVoices, nativeSpeak, nativeStop, openNativeTtsInstall } from "@/lib/native-tts";
+import { isNative, getNativeVoices, nativeSpeak, nativeStop, openNativeTtsInstall, runTTSDiagnostics, setDiagError, type TTSDiagnostics } from "@/lib/native-tts";
 
 const MAX_CHUNK_CHARS = 80;
 
@@ -346,6 +346,7 @@ export function useTTS() {
       if (cancelingRef.current) return;
       const message = e instanceof Error ? e.message : String(e);
       console.warn('[NativeTTS] speak error:', message);
+      setDiagError(message);
 
       if (/install\/enable an android tts engine|not available on this device|not yet initialized/i.test(message)) {
         setDebugInfo('Motor TTS Android indisponível. Abrindo instalação/configuração do motor de voz...');
@@ -556,6 +557,6 @@ export function useTTS() {
     isSpeaking, isPaused, progress, voices, selectedVoice,
     rate, setRate, pitch, setPitch, setSelectedVoice, speak, speakFromIndex, pause, resume, stop,
     activeCharIndex, setOnEnd, isNativeTTS: useNativeRef.current,
-    debugInfo,
+    debugInfo, runDiagnostics: runTTSDiagnostics, openInstall: openNativeTtsInstall,
   };
 }
