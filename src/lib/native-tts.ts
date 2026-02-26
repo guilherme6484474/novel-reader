@@ -155,15 +155,10 @@ export async function nativeSpeak(options: {
   pitch?: number;
   voice?: number;
 }): Promise<{ engine: string }> {
-  // ─── Strategy 1: Try Web Speech API FIRST (more reliable in Android WebView) ───
-  const webResult = await tryWebSpeech(options);
-  if (webResult) return webResult;
-
-  // ─── Strategy 2: Try native Capacitor plugin ───
+  // ─── Strategy 1: Try native Capacitor plugin FIRST ───
   const plugin = await getPlugin();
   if (plugin) {
     try {
-      // Minimal options — remove category/queueStrategy that may cause silent failures
       const speakOptions: any = {
         text: options.text,
         lang: options.lang || 'pt-BR',
@@ -172,6 +167,7 @@ export async function nativeSpeak(options: {
         volume: 1.0,
       };
 
+      // Only set voice index for non-system-default voices
       if (options.voice !== undefined && options.voice >= 0) {
         speakOptions.voice = options.voice;
       }
@@ -183,6 +179,10 @@ export async function nativeSpeak(options: {
       console.warn('[NativeTTS] Plugin speak failed:', e);
     }
   }
+
+  // ─── Strategy 2: Try Web Speech API as fallback (only if voices exist) ───
+  const webResult = await tryWebSpeech(options);
+  if (webResult) return webResult;
 
   throw new Error('No TTS engine produced audio');
 }
@@ -209,6 +209,13 @@ function tryWebSpeech(options: {
       try {
         const voices = speechSynthesis.getVoices();
         console.log(`[NativeTTS] WebSpeech doSpeak: ${voices.length} voices available`);
+
+        // If no real voices loaded, Web Speech can't produce audio — bail out
+        if (voices.length === 0) {
+          console.warn('[NativeTTS] WebSpeech has 0 voices, skipping');
+          resolve(null);
+          return;
+        }
 
         const utterance = new SpeechSynthesisUtterance(options.text);
         utterance.lang = options.lang || 'pt-BR';
