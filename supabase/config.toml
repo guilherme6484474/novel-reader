@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.translate-chapter]
 verify_jwt = false
+
+[functions.cloud-tts]
+verify_jwt = false
