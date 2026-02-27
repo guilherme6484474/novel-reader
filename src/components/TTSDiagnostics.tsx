@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
-import { Loader2, RefreshCw, Settings2, Volume2, ExternalLink, AlertTriangle } from "lucide-react";
+import { Loader2, RefreshCw, Settings2, Volume2, ExternalLink, AlertTriangle, Trash2, ScrollText } from "lucide-react";
 import type { TTSDiagnostics as DiagData } from "@/lib/native-tts";
 import { isNative } from "@/lib/native-tts";
 import { toast } from "sonner";
+import { getLogEntries, clearLog, subscribeLog } from "@/lib/tts-debug-log";
 
 interface TTSDiagnosticsProps {
   debugInfo: string;
@@ -38,17 +39,26 @@ function testWebSpeechDirect(): boolean {
     speechSynthesis.speak(utt);
     return true;
   } catch (e) {
-    console.warn('[TTSDiag] testWebSpeechDirect failed:', e);
     return false;
   }
 }
 
+function useLogEntries() {
+  return useSyncExternalStore(
+    subscribeLog,
+    getLogEntries,
+    getLogEntries,
+  );
+}
+
 export function TTSDiagnosticsPanel({ debugInfo, voiceCount, runDiagnostics, openInstall }: TTSDiagnosticsProps) {
   const [showDiag, setShowDiag] = useState(false);
+  const [showLog, setShowLog] = useState(false);
   const [diagData, setDiagData] = useState<DiagData | null>(null);
   const [diagError, setDiagError] = useState<string | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
   const native = isNative();
+  const logEntries = useLogEntries();
 
   const handleRunDiag = useCallback(async () => {
     setDiagLoading(true);
@@ -66,9 +76,7 @@ export function TTSDiagnosticsPanel({ debugInfo, voiceCount, runDiagnostics, ope
   useEffect(() => {
     if (!showDiag) return;
     void handleRunDiag();
-    const interval = setInterval(() => {
-      void handleRunDiag();
-    }, REFRESH_INTERVAL_MS);
+    const interval = setInterval(() => void handleRunDiag(), REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [showDiag, handleRunDiag]);
 
@@ -76,7 +84,7 @@ export function TTSDiagnosticsPanel({ debugInfo, voiceCount, runDiagnostics, ope
     const opened = await openInstall();
     if (!opened) {
       toast.info("Instale um motor de voz", {
-        description: "No Android: Configurações → Idioma e entrada → Motor de texto para fala. No navegador web, a Web Speech API é usada automaticamente.",
+        description: "No Android: Configurações → Idioma e entrada → Motor de texto para fala. No Chrome/Edge, a Web Speech API é usada automaticamente.",
         duration: 8000,
       });
     }
@@ -92,6 +100,12 @@ export function TTSDiagnosticsPanel({ debugInfo, voiceCount, runDiagnostics, ope
     }
   };
 
+  const levelColor = (level: string) => {
+    if (level === 'error') return 'text-destructive';
+    if (level === 'warn') return 'text-yellow-500';
+    return 'text-muted-foreground';
+  };
+
   return (
     <div className="mt-3 space-y-2">
       <div className="p-2 rounded-lg bg-muted/50 border border-border/40">
@@ -100,37 +114,55 @@ export function TTSDiagnosticsPanel({ debugInfo, voiceCount, runDiagnostics, ope
         </p>
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button
-          variant="outline" size="sm"
-          onClick={() => setShowDiag(!showDiag)}
-          className="rounded-lg gap-1.5 text-xs border-border/60"
-        >
+        <Button variant="outline" size="sm" onClick={() => setShowDiag(!showDiag)}
+          className="rounded-lg gap-1.5 text-xs border-border/60">
           <Settings2 className="h-3 w-3" />
-          {showDiag ? 'Ocultar diagnóstico' : 'Diagnóstico TTS'}
+          {showDiag ? 'Ocultar' : 'Diagnóstico'}
         </Button>
-        <Button
-          variant="outline" size="sm"
-          onClick={handleTestVoice}
-          className="rounded-lg gap-1.5 text-xs border-border/60"
-          title="Testar se a voz está funcionando"
-        >
+        <Button variant="outline" size="sm" onClick={handleTestVoice}
+          className="rounded-lg gap-1.5 text-xs border-border/60">
           <Volume2 className="h-3 w-3" />
           Testar voz
         </Button>
-        <Button
-          variant="outline" size="sm"
-          onClick={handleOpenInstall}
-          className="rounded-lg gap-1.5 text-xs border-border/60"
-          title={native ? "Abrir configurações de voz do Android" : "Ver instruções para instalar motor de voz"}
-        >
+        <Button variant="outline" size="sm" onClick={handleOpenInstall}
+          className="rounded-lg gap-1.5 text-xs border-border/60">
           <ExternalLink className="h-3 w-3" />
-          {native ? "Config. motor" : "Instalar motor TTS"}
+          {native ? "Config. motor" : "Instalar TTS"}
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => setShowLog(!showLog)}
+          className="rounded-lg gap-1.5 text-xs border-border/60">
+          <ScrollText className="h-3 w-3" />
+          {showLog ? 'Ocultar log' : 'Ver log'}
         </Button>
       </div>
+
+      {/* In-app TTS log — visible on device without LogCat */}
+      {showLog && (
+        <div className="p-2 rounded-lg bg-card border border-border/60 space-y-1 animate-fade-in max-h-64 overflow-y-auto">
+          <div className="flex items-center justify-between sticky top-0 bg-card pb-1">
+            <p className="text-[10px] font-semibold text-foreground">Log TTS ({logEntries.length})</p>
+            <Button variant="ghost" size="sm" onClick={clearLog} className="h-5 px-1.5 text-[9px]">
+              <Trash2 className="h-2.5 w-2.5 mr-1" /> Limpar
+            </Button>
+          </div>
+          {logEntries.length === 0 ? (
+            <p className="text-[10px] text-muted-foreground">Nenhum log ainda. Tente usar o TTS.</p>
+          ) : (
+            [...logEntries].reverse().map((entry, i) => (
+              <div key={i} className="text-[9px] font-mono leading-tight">
+                <span className="text-muted-foreground/60">{entry.time}</span>{' '}
+                <span className={levelColor(entry.level)}>{entry.level === 'error' ? '❌' : entry.level === 'warn' ? '⚠️' : 'ℹ️'}</span>{' '}
+                <span className={levelColor(entry.level)}>{entry.msg}</span>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
       {showDiag && (
         <div className="p-3 rounded-lg bg-card border border-border/60 space-y-2 animate-fade-in">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-foreground">Diagnóstico do Motor TTS</p>
+            <p className="text-xs font-semibold text-foreground">Diagnóstico TTS</p>
             <Button variant="ghost" size="sm" onClick={handleRunDiag} disabled={diagLoading} className="h-6 px-2 text-[10px]">
               {diagLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
             </Button>
@@ -138,65 +170,68 @@ export function TTSDiagnosticsPanel({ debugInfo, voiceCount, runDiagnostics, ope
           {diagData && !diagError ? (
             <div className="text-[11px] font-mono space-y-1.5 text-muted-foreground">
               <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                <span>Plataforma nativa:</span>
+                <span>Plataforma:</span>
                 <span className={diagData.isNativePlatform ? 'text-primary' : 'text-muted-foreground'}>
-                  {diagData.isNativePlatform ? '✅ Sim' : '⚠️ Web (navegador)'}
+                  {diagData.isNativePlatform ? '✅ Android nativo' : '⚠️ Web'}
                 </span>
                 {diagData.isNativePlatform && (
                   <>
-                    <span>Plugin Capacitor:</span>
+                    <span>Plugin:</span>
                     <span className={diagData.pluginAvailable ? 'text-primary' : 'text-destructive'}>
-                      {diagData.pluginAvailable ? '✅ Disponível' : '❌ Indisponível'}
+                      {diagData.pluginAvailable ? '✅ OK' : '❌ Ausente'}
                     </span>
-                    <span>Engine pronto:</span>
+                    <span>Engine:</span>
                     <span className={diagData.pluginReady ? 'text-primary' : 'text-muted-foreground'}>
-                      {diagData.pluginReady ? '✅ Sim' : '⏳ Não/Inicializando'}
+                      {diagData.pluginReady ? '✅ Pronto' : '⏳ Aguardando'}
                     </span>
-                    <span>Vozes plugin:</span>
+                    <span>Vozes nativas:</span>
                     <span className={diagData.voiceCount > 0 ? 'text-primary' : 'text-muted-foreground'}>
                       {diagData.voiceCount}
                     </span>
                   </>
                 )}
-                <span>WebSpeech API:</span>
+                <span>WebSpeech:</span>
                 <span className={diagData.webSpeechAvailable ? 'text-primary' : 'text-destructive'}>
-                  {diagData.webSpeechAvailable ? `✅ ${diagData.webSpeechVoiceCount} vozes` : '❌ Indisponível'}
+                  {diagData.webSpeechAvailable ? `✅ ${diagData.webSpeechVoiceCount} vozes` : '❌'}
                 </span>
               </div>
 
-              {/* Web-specific guidance */}
               {!diagData.isNativePlatform && diagData.webSpeechVoiceCount === 0 && (
                 <div className="mt-2 p-2 rounded bg-accent/50 border border-border/40">
                   <div className="flex gap-1.5 items-start">
                     <AlertTriangle className="h-3 w-3 text-accent-foreground mt-0.5 shrink-0" />
                     <div className="text-[10px] text-accent-foreground">
-                      <p className="font-semibold mb-1">Nenhuma voz carregada</p>
-                      <p>Tente usar o <strong>Google Chrome</strong> ou <strong>Microsoft Edge</strong> para melhor suporte a vozes.</p>
-                      <p className="mt-1">No Android, instale o <strong>Google Text-to-Speech</strong> pela Play Store para ter vozes disponíveis.</p>
+                      <p className="font-semibold mb-1">Sem vozes</p>
+                      <p>Use <strong>Chrome</strong> ou <strong>Edge</strong>. No Android, instale <strong>Google Text-to-Speech</strong> pela Play Store.</p>
                     </div>
                   </div>
                 </div>
               )}
 
-              {!diagData.isNativePlatform && diagData.webSpeechVoiceCount > 0 && (
-                <div className="mt-2 p-2 rounded bg-primary/10 border border-primary/20">
-                  <p className="text-[10px] text-primary">
-                    ✅ Web Speech API pronta com {diagData.webSpeechVoiceCount} vozes. Use o botão "Testar voz" acima.
-                  </p>
+              {diagData.isNativePlatform && !diagData.pluginReady && (
+                <div className="mt-2 p-2 rounded bg-accent/50 border border-border/40">
+                  <div className="flex gap-1.5 items-start">
+                    <AlertTriangle className="h-3 w-3 text-accent-foreground mt-0.5 shrink-0" />
+                    <div className="text-[10px] text-accent-foreground">
+                      <p className="font-semibold mb-1">Motor TTS não pronto</p>
+                      <p>Verifique em <strong>Configurações → Idioma → Texto para fala</strong> se o Google TTS está ativo.</p>
+                      <p className="mt-1">Toque em "Config. motor" acima para abrir.</p>
+                    </div>
+                  </div>
                 </div>
               )}
 
               {diagData.supportedLanguages.length > 0 && (
                 <div className="mt-2">
                   <p className="text-[10px] font-semibold text-foreground/70 mb-1">
-                    Idiomas suportados ({diagData.supportedLanguages.length}):
+                    Idiomas ({diagData.supportedLanguages.length}):
                   </p>
                   <div className="flex flex-wrap gap-1">
-                    {diagData.supportedLanguages.slice(0, 30).map((lang: string) => (
+                    {diagData.supportedLanguages.slice(0, 20).map((lang: string) => (
                       <span key={lang} className="px-1.5 py-0.5 rounded bg-muted text-[9px]">{lang}</span>
                     ))}
-                    {diagData.supportedLanguages.length > 30 && (
-                      <span className="px-1.5 py-0.5 rounded bg-muted text-[9px]">+{diagData.supportedLanguages.length - 30}</span>
+                    {diagData.supportedLanguages.length > 20 && (
+                      <span className="px-1.5 py-0.5 rounded bg-muted text-[9px]">+{diagData.supportedLanguages.length - 20}</span>
                     )}
                   </div>
                 </div>

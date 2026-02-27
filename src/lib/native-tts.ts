@@ -3,6 +3,7 @@
  * Falls back to Web Speech API when plugin is not available.
  */
 import { Capacitor } from '@capacitor/core';
+import { ttsLog, ttsWarn, ttsError } from '@/lib/tts-debug-log';
 
 let CapTTS: typeof import('@capacitor-community/text-to-speech').TextToSpeech | null = null;
 
@@ -15,7 +16,7 @@ async function getPlugin() {
     CapTTS = mod.TextToSpeech;
     return CapTTS;
   } catch {
-    console.warn('[NativeTTS] Plugin not available, will use Web Speech API fallback');
+    ttsWarn('Plugin not available, will use Web Speech API fallback');
     return null;
   }
 }
@@ -45,7 +46,7 @@ function getWebSpeechVoices(): NativeVoice[] {
   try {
     const voices = speechSynthesis.getVoices();
     if (voices.length > 0) {
-      console.log(`[NativeTTS] Web Speech API returned ${voices.length} voices`);
+      ttsLog(`Web Speech API returned ${voices.length} voices`);
       return voices.map(v => ({
         name: v.name,
         lang: v.lang,
@@ -54,7 +55,7 @@ function getWebSpeechVoices(): NativeVoice[] {
       }));
     }
   } catch (e) {
-    console.warn('[NativeTTS] Web Speech API getVoices failed:', e);
+    ttsWarn('Web Speech API getVoices failed: ' + String(e));
   }
   return [];
 }
@@ -162,7 +163,7 @@ async function resolveVoiceIndex(
       (v.voiceURI || '') === voiceURI || (v.name || '') === voiceURI
     );
     if (exactIdx >= 0) {
-      console.log(`[NativeTTS] Voice resolved by URI: index=${exactIdx}, uri=${voiceURI}`);
+      ttsLog(`Voice resolved by URI: index=${exactIdx}, uri=${voiceURI}`);
       return exactIdx;
     }
 
@@ -173,30 +174,30 @@ async function resolveVoiceIndex(
       return uri.includes(target) || target.includes(uri);
     });
     if (partialIdx >= 0) {
-      console.log(`[NativeTTS] Voice resolved by partial match: index=${partialIdx}, uri=${voiceURI}`);
+      ttsLog(`Voice resolved by partial match: index=${partialIdx}, uri=${voiceURI}`);
       return partialIdx;
     }
   } catch (e) {
-    console.warn('[NativeTTS] Failed to resolve voice index:', e);
+    ttsWarn('Failed to resolve voice index: ' + getErrorMessage(e));
   }
 
   return undefined;
 }
 
 export async function getNativeVoices(): Promise<NativeVoice[]> {
-  console.log('[NativeTTS] getNativeVoices() called. isNative:', isNative());
+  ttsLog('getNativeVoices() called. isNative: ' + isNative());
   const plugin = await getPlugin();
-  console.log('[NativeTTS] plugin loaded:', !!plugin);
+  ttsLog('plugin loaded: ' + !!plugin);
 
   // ─── Try native plugin first ───
   if (plugin) {
     // Try getSupportedVoices with crash protection (Android 12+ sorting bug)
     for (let attempt = 0; attempt < 4; attempt++) {
       try {
-        console.log(`[NativeTTS] getSupportedVoices attempt ${attempt + 1}...`);
+        ttsLog(`getSupportedVoices attempt ${attempt + 1}...`);
         const result = await withTimeout(plugin.getSupportedVoices(), 2500, 'getSupportedVoices');
         const voices = result.voices || [];
-        console.log(`[NativeTTS] Attempt ${attempt + 1}: ${voices.length} voices`);
+        ttsLog(`Attempt ${attempt + 1}: ${voices.length} voices`);
 
         if (voices.length > 0) {
           const mapped = voices.map((v, index) => ({
@@ -205,15 +206,14 @@ export async function getNativeVoices(): Promise<NativeVoice[]> {
             localService: v.localService ?? true,
             voiceURI: v.voiceURI || v.name || '',
           }));
-          console.log('[NativeTTS] Plugin voices loaded:', mapped.length);
+          ttsLog('Plugin voices loaded: ' + mapped.length);
           return [...mapped, ...FALLBACK_VOICES];
         }
       } catch (e) {
         const msg = getErrorMessage(e);
-        console.warn(`[NativeTTS] getSupportedVoices attempt ${attempt + 1} failed:`, msg);
-        // Known Android 12+ bug: "Comparison method violates its general contract!"
+        ttsWarn(`getSupportedVoices attempt ${attempt + 1} failed: ${msg}`);
         if (msg.includes('Comparison method')) {
-          console.warn('[NativeTTS] Known Android sorting bug detected, skipping voice enumeration');
+          ttsWarn('Known Android sorting bug detected, skipping voice enumeration');
           break;
         }
       }
@@ -222,10 +222,10 @@ export async function getNativeVoices(): Promise<NativeVoice[]> {
 
     // Try getSupportedLanguages as secondary fallback
     try {
-      console.log('[NativeTTS] Trying getSupportedLanguages fallback...');
+      ttsLog('Trying getSupportedLanguages fallback...');
       const langResult = await withTimeout(plugin.getSupportedLanguages(), 2000, 'getSupportedLanguages');
       const languages = langResult.languages || [];
-      console.log('[NativeTTS] Language fallback got:', languages.length, 'languages');
+      ttsLog('Language fallback got: ' + languages.length + ' languages');
       if (languages.length > 0) {
         const langVoices = languages.map(lang => ({
           name: `Voz ${lang}`,
@@ -236,15 +236,15 @@ export async function getNativeVoices(): Promise<NativeVoice[]> {
         return [...langVoices, ...FALLBACK_VOICES];
       }
     } catch (e) {
-      console.warn('[NativeTTS] Language fallback failed:', getErrorMessage(e));
+      ttsWarn('Language fallback failed: ' + getErrorMessage(e));
     }
   }
 
   // ─── Try Web Speech API (works in Android WebView) ───
-  console.log('[NativeTTS] Trying Web Speech API fallback...');
+  ttsLog('Trying Web Speech API fallback...');
   const webVoices = getWebSpeechVoices();
   if (webVoices.length > 0) {
-    console.log('[NativeTTS] Web Speech returned', webVoices.length, 'voices');
+    ttsLog('Web Speech returned ' + webVoices.length + ' voices');
     return [...webVoices, ...FALLBACK_VOICES];
   }
 
@@ -254,36 +254,36 @@ export async function getNativeVoices(): Promise<NativeVoice[]> {
       await sleep(600);
       const delayed = getWebSpeechVoices();
       if (delayed.length > 0) {
-        console.log('[NativeTTS] Web Speech delayed load:', delayed.length, 'voices');
+        ttsLog('Web Speech delayed load: ' + delayed.length + ' voices');
         return [...delayed, ...FALLBACK_VOICES];
       }
     }
   }
 
   // ─── Last resort: return guaranteed fallback voices ───
-  console.warn('[NativeTTS] All voice loading methods failed, returning fallback voices');
+  ttsWarn('All voice loading methods failed, returning fallback voices');
   return FALLBACK_VOICES;
 }
 
 export async function openNativeTtsInstall(): Promise<boolean> {
-  console.log('[NativeTTS] openNativeTtsInstall called, isNative:', isNative());
+  ttsLog('openNativeTtsInstall called, isNative: ' + isNative());
   if (!isNative()) {
     return false;
   }
 
   const plugin = await getPlugin();
   if (!plugin) {
-    console.warn('[NativeTTS] openInstall: no plugin available');
+    ttsWarn('openInstall: no plugin available');
     return false;
   }
 
   try {
-    console.log('[NativeTTS] Calling plugin.openInstall()...');
+    ttsLog('Calling plugin.openInstall()...');
     await withTimeout(plugin.openInstall(), 5000, 'openInstall');
-    console.log('[NativeTTS] openInstall succeeded');
+    ttsLog('openInstall succeeded');
     return true;
   } catch (error) {
-    console.warn('[NativeTTS] openInstall failed:', getErrorMessage(error));
+    ttsWarn('openInstall failed: ' + getErrorMessage(error));
     return false;
   }
 }
@@ -303,7 +303,7 @@ let lastDiagError: string | null = null;
 export function setDiagError(msg: string) { lastDiagError = msg; }
 
 export async function runTTSDiagnostics(): Promise<TTSDiagnostics> {
-  console.log('[NativeTTS] runTTSDiagnostics() called');
+  ttsLog('runTTSDiagnostics() called');
   const diag: TTSDiagnostics = {
     isNativePlatform: isNative(),
     pluginAvailable: false,
@@ -319,25 +319,25 @@ export async function runTTSDiagnostics(): Promise<TTSDiagnostics> {
     try {
       const plugin = await getPlugin();
       diag.pluginAvailable = !!plugin;
-      console.log('[NativeTTS] Diag: pluginAvailable =', diag.pluginAvailable);
+      ttsLog('Diag: pluginAvailable = ' + diag.pluginAvailable);
 
       if (plugin) {
         try {
           const langResult = await withTimeout(plugin.getSupportedLanguages(), 3000, 'diag-langs');
           diag.supportedLanguages = (langResult.languages || []).sort();
           diag.pluginReady = true;
-          console.log('[NativeTTS] Diag: pluginReady, langs =', diag.supportedLanguages.length);
+          ttsLog('Diag: pluginReady, langs = ' + diag.supportedLanguages.length);
         } catch (e) {
-          console.warn('[NativeTTS] Diag: getSupportedLanguages failed:', getErrorMessage(e));
+          ttsWarn('Diag: getSupportedLanguages failed: ' + getErrorMessage(e));
         }
 
         try {
           const voiceResult = await withTimeout(plugin.getSupportedVoices(), 3000, 'diag-voices');
           diag.voiceCount = (voiceResult.voices || []).length;
-          console.log('[NativeTTS] Diag: voiceCount =', diag.voiceCount);
+          ttsLog('Diag: voiceCount = ' + diag.voiceCount);
         } catch (e) {
           const msg = getErrorMessage(e);
-          console.warn('[NativeTTS] Diag: getSupportedVoices failed:', msg);
+          ttsWarn('Diag: getSupportedVoices failed: ' + msg);
           // Capture this as the last error for display
           if (msg.includes('Comparison method')) {
             diag.lastError = 'Bug Android: erro de sorting nas vozes. O motor TTS pode funcionar mesmo assim.';
@@ -345,16 +345,16 @@ export async function runTTSDiagnostics(): Promise<TTSDiagnostics> {
         }
       }
     } catch (e) {
-      console.warn('[NativeTTS] Diag: plugin load failed:', getErrorMessage(e));
+      ttsWarn('Diag: plugin load failed: ' + getErrorMessage(e));
     }
   }
 
   if (diag.webSpeechAvailable) {
     try { diag.webSpeechVoiceCount = speechSynthesis.getVoices().length; } catch {}
-    console.log('[NativeTTS] Diag: webSpeechVoiceCount =', diag.webSpeechVoiceCount);
+    ttsLog('Diag: webSpeechVoiceCount = ' + diag.webSpeechVoiceCount);
   }
 
-  console.log('[NativeTTS] Diagnostics result:', JSON.stringify(diag));
+  ttsLog('Diagnostics result: ' + JSON.stringify(diag));
   return diag;
 }
 
@@ -374,17 +374,11 @@ export async function nativeSpeak(options: {
   pitch?: number;
   voiceURI?: string;
 }): Promise<{ engine: string }> {
-  console.log('[NativeTTS] nativeSpeak called:', {
-    textLen: options.text.length,
-    lang: options.lang,
-    rate: options.rate,
-    voiceURI: options.voiceURI,
-    isNative: isNative(),
-  });
+  ttsLog('nativeSpeak: textLen=' + options.text.length + ' lang=' + options.lang + ' rate=' + options.rate + ' voiceURI=' + options.voiceURI + ' isNative=' + isNative());
 
   // ─── Strategy 1: Try native Capacitor plugin FIRST ───
   const plugin = await getPlugin();
-  console.log('[NativeTTS] nativeSpeak: plugin =', !!plugin);
+  ttsLog('nativeSpeak: plugin=' + !!plugin);
 
   if (plugin) {
     let requestedLang = options.lang;
@@ -393,11 +387,11 @@ export async function nativeSpeak(options: {
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
         const resolvedLang = await resolveBestPluginLanguage(plugin, requestedLang);
-        console.log('[NativeTTS] resolvedLang =', resolvedLang);
+        ttsLog('resolvedLang = ' + resolvedLang);
 
         // FIX #2: Resolve voice by URI instead of using raw index
         const voiceIndex = triedWithoutVoice ? undefined : await resolveVoiceIndex(plugin, options.voiceURI);
-        console.log('[NativeTTS] voiceIndex =', voiceIndex);
+        ttsLog('voiceIndex = ' + voiceIndex);
 
         const speakOptions: any = {
           text: options.text,
@@ -412,14 +406,14 @@ export async function nativeSpeak(options: {
           speakOptions.voice = voiceIndex;
         }
 
-        console.log('[NativeTTS] Calling plugin.speak:', JSON.stringify(speakOptions));
+        ttsLog('Calling plugin.speak: ' + JSON.stringify(speakOptions));
         await withTimeout(plugin.speak(speakOptions), SPEAK_TIMEOUT_MS, 'plugin.speak');
-        console.log('[NativeTTS] plugin.speak succeeded');
+        ttsLog('plugin.speak succeeded');
         return { engine: `capacitor-plugin(${resolvedLang})` };
       } catch (error) {
         const message = getErrorMessage(error);
         const lower = message.toLowerCase();
-        console.warn(`[NativeTTS] Plugin speak failed (attempt ${attempt + 1}):`, message);
+        ttsWarn(`Plugin speak failed (attempt ${attempt + 1}): ${message}`);
 
         if (lower.includes('this language is not supported')) {
           requestedLang = undefined;
@@ -432,18 +426,18 @@ export async function nativeSpeak(options: {
         }
 
         if (isNoEngineError(lower)) {
-          console.warn('[NativeTTS] No TTS engine on device, opening install...');
+          ttsWarn('No TTS engine on device, opening install...');
           await openNativeTtsInstall();
         }
 
         if (lower.includes('timeout')) {
-          console.warn('[NativeTTS] Timeout detected, breaking retry loop');
+          ttsWarn('Timeout detected, breaking retry loop');
           break;
         }
 
         // If we had a voice set, retry once without voice (default system voice)
         if (!triedWithoutVoice && options.voiceURI) {
-          console.log('[NativeTTS] Retrying without specific voice...');
+          ttsLog('Retrying without specific voice...');
           triedWithoutVoice = true;
           continue;
         }
@@ -454,10 +448,10 @@ export async function nativeSpeak(options: {
   }
 
   // ─── Strategy 2: Try Web Speech API as fallback ───
-  console.log('[NativeTTS] Falling back to Web Speech API...');
+  ttsLog('Falling back to Web Speech API...');
   const webResult = await tryWebSpeech(options);
   if (webResult) {
-    console.log('[NativeTTS] Web Speech succeeded:', webResult.engine);
+    ttsLog('Web Speech succeeded: ' + webResult.engine);
     return webResult;
   }
 
@@ -475,7 +469,7 @@ function tryWebSpeech(options: {
   pitch?: number;
 }): Promise<{ engine: string } | null> {
   if (typeof speechSynthesis === 'undefined') {
-    console.log('[NativeTTS] speechSynthesis not available');
+    ttsLog('speechSynthesis not available');
     return Promise.resolve(null);
   }
 
@@ -486,11 +480,11 @@ function tryWebSpeech(options: {
     const doSpeak = () => {
       try {
         const voices = speechSynthesis.getVoices();
-        console.log(`[NativeTTS] WebSpeech doSpeak: ${voices.length} voices available`);
+        ttsLog('WebSpeech doSpeak: ' + voices.length + ' voices available');
 
         // FIX #5: If no real voices loaded, Web Speech can't produce audio — bail with log
         if (voices.length === 0) {
-          console.warn('[NativeTTS] WebSpeech has 0 voices — cannot produce audio');
+          ttsWarn('WebSpeech has 0 voices — cannot produce audio');
           resolve(null);
           return;
         }
@@ -506,7 +500,7 @@ function tryWebSpeech(options: {
         const match = voices.find(v => v.lang.startsWith(langPrefix));
         if (match) {
           utterance.voice = match;
-          console.log(`[NativeTTS] Using WebSpeech voice: ${match.name} (${match.lang})`);
+          ttsLog('Using WebSpeech voice: ' + match.name + ' (' + match.lang + ')');
         }
 
         let settled = false;
@@ -518,7 +512,7 @@ function tryWebSpeech(options: {
 
         utterance.onend = () => settle({ engine: `webSpeech(${match?.name || 'default'})` });
         utterance.onerror = (e) => {
-          console.warn('[NativeTTS] WebSpeech error:', e.error);
+          ttsWarn('WebSpeech error: ' + e.error);
           if (e.error === 'canceled' || e.error === 'interrupted') {
             settle({ engine: 'webSpeech-canceled' });
           } else {
@@ -529,15 +523,15 @@ function tryWebSpeech(options: {
         // FIX #3: Reduced safety timeout from 10s to 8s
         setTimeout(() => {
           if (!settled) {
-            console.warn('[NativeTTS] WebSpeech timeout, no onend/onerror fired');
+            ttsWarn('WebSpeech timeout, no onend/onerror fired');
             settle(null);
           }
         }, 8000);
 
         speechSynthesis.speak(utterance);
-        console.log('[NativeTTS] speechSynthesis.speak() called');
+        ttsLog('speechSynthesis.speak() called');
       } catch (e) {
-        console.warn('[NativeTTS] WebSpeech doSpeak exception:', e);
+        ttsWarn('WebSpeech doSpeak exception: ' + getErrorMessage(e));
         resolve(null);
       }
     };
@@ -545,7 +539,7 @@ function tryWebSpeech(options: {
     // Ensure voices are loaded
     const voices = speechSynthesis.getVoices();
     if (voices.length === 0) {
-      console.log('[NativeTTS] No voices yet, waiting for onvoiceschanged...');
+      ttsLog('No voices yet, waiting for onvoiceschanged...');
       let waited = false;
       speechSynthesis.onvoiceschanged = () => {
         if (waited) return;
