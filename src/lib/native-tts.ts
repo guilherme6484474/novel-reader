@@ -300,7 +300,8 @@ export interface TTSDiagnostics {
 }
 
 let lastDiagError: string | null = null;
-export function setDiagError(msg: string) { lastDiagError = msg; }
+export function setDiagError(msg: string | null) { lastDiagError = msg; }
+export function clearDiagError() { lastDiagError = null; }
 
 export async function runTTSDiagnostics(): Promise<TTSDiagnostics> {
   ttsLog('runTTSDiagnostics() called');
@@ -352,6 +353,12 @@ export async function runTTSDiagnostics(): Promise<TTSDiagnostics> {
   if (diag.webSpeechAvailable) {
     try { diag.webSpeechVoiceCount = speechSynthesis.getVoices().length; } catch {}
     ttsLog('Diag: webSpeechVoiceCount = ' + diag.webSpeechVoiceCount);
+  }
+
+  // Evita exibir erro antigo quando o motor nativo já está operacional
+  if (diag.isNativePlatform && diag.pluginReady) {
+    clearDiagError();
+    diag.lastError = null;
   }
 
   ttsLog('Diagnostics result: ' + JSON.stringify(diag));
@@ -408,6 +415,7 @@ export async function nativeSpeak(options: {
 
         ttsLog('Calling plugin.speak: ' + JSON.stringify(speakOptions));
         await withTimeout(plugin.speak(speakOptions), SPEAK_TIMEOUT_MS, 'plugin.speak');
+        clearDiagError();
         ttsLog('plugin.speak succeeded');
         return { engine: `capacitor-plugin(${resolvedLang})` };
       } catch (error) {
@@ -451,6 +459,7 @@ export async function nativeSpeak(options: {
   ttsLog('Falling back to Web Speech API...');
   const webResult = await tryWebSpeech(options);
   if (webResult) {
+    clearDiagError();
     ttsLog('Web Speech succeeded: ' + webResult.engine);
     return webResult;
   }

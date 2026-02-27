@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
-import { Loader2, RefreshCw, Settings2, Volume2, ExternalLink, AlertTriangle, Trash2, ScrollText } from "lucide-react";
-import type { TTSDiagnostics as DiagData } from "@/lib/native-tts";
-import { isNative } from "@/lib/native-tts";
+import { Loader2, RefreshCw, Settings2, Volume2, ExternalLink, AlertTriangle, Trash2, ScrollText, Download } from "lucide-react";
+import { isNative, nativeSpeak, type TTSDiagnostics as DiagData } from "@/lib/native-tts";
 import { toast } from "sonner";
 import { getLogEntries, clearLog, subscribeLog } from "@/lib/tts-debug-log";
 
@@ -41,6 +40,11 @@ function testWebSpeechDirect(): boolean {
   } catch (e) {
     return false;
   }
+}
+
+function openGoogleTtsStore() {
+  if (typeof window === 'undefined') return;
+  window.open('https://play.google.com/store/apps/details?id=com.google.android.tts', '_blank', 'noopener,noreferrer');
 }
 
 function useLogEntries() {
@@ -90,7 +94,32 @@ export function TTSDiagnosticsPanel({ debugInfo, voiceCount, runDiagnostics, ope
     }
   };
 
-  const handleTestVoice = () => {
+  const handleDownloadTts = () => {
+    openGoogleTtsStore();
+    toast.info("Abrindo Google Text-to-Speech na Play Store");
+  };
+
+  const handleTestVoice = async () => {
+    if (native) {
+      try {
+        const result = await nativeSpeak({
+          text: "Teste de voz no Android.",
+          lang: typeof navigator !== 'undefined' ? navigator.language : 'pt-BR',
+          rate: 1,
+          pitch: 1,
+        });
+        toast.success("Teste de voz concluído!", {
+          description: `Motor: ${result.engine}`,
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        toast.error("Erro no teste de voz", {
+          description: msg.length > 120 ? `${msg.slice(0, 120)}…` : msg,
+        });
+      }
+      return;
+    }
+
     const ok = testWebSpeechDirect();
     if (!ok) {
       toast.error("Web Speech API indisponível", {
@@ -129,6 +158,13 @@ export function TTSDiagnosticsPanel({ debugInfo, voiceCount, runDiagnostics, ope
           <ExternalLink className="h-3 w-3" />
           {native ? "Config. motor" : "Instalar TTS"}
         </Button>
+        {native && (
+          <Button variant="outline" size="sm" onClick={handleDownloadTts}
+            className="rounded-lg gap-1.5 text-xs border-border/60">
+            <Download className="h-3 w-3" />
+            Baixar TTS
+          </Button>
+        )}
         <Button variant="outline" size="sm" onClick={() => setShowLog(!showLog)}
           className="rounded-lg gap-1.5 text-xs border-border/60">
           <ScrollText className="h-3 w-3" />
