@@ -4,6 +4,7 @@
  */
 import { Capacitor } from '@capacitor/core';
 import { ttsLog, ttsWarn, ttsError } from '@/lib/tts-debug-log';
+import { cloudSpeak, cloudStop } from '@/lib/cloud-tts';
 
 let CapTTS: typeof import('@capacitor-community/text-to-speech').TextToSpeech | null = null;
 
@@ -464,8 +465,25 @@ export async function nativeSpeak(options: {
     return webResult;
   }
 
+  // ─── Strategy 3: Cloud TTS fallback (ElevenLabs → Google → Edge TTS) ───
+  ttsLog('All local engines failed. Trying Cloud TTS...');
+  try {
+    const cloudResult = await cloudSpeak({
+      text: options.text,
+      lang: options.lang || 'pt-BR',
+      rate: options.rate,
+      pitch: options.pitch,
+    });
+    clearDiagError();
+    ttsLog('Cloud TTS succeeded: ' + cloudResult.engine);
+    return cloudResult;
+  } catch (cloudErr) {
+    const cloudMsg = cloudErr instanceof Error ? cloudErr.message : String(cloudErr);
+    ttsWarn('Cloud TTS also failed: ' + cloudMsg);
+  }
+
   // FIX #5: Descriptive error message for the caller to display
-  throw new Error('Nenhum motor de voz produziu áudio. Verifique se um motor TTS está instalado e ativo nas configurações do Android.');
+  throw new Error('Nenhum motor de voz produziu áudio (local e nuvem falharam). Verifique sua conexão de internet ou instale um motor TTS nas configurações do Android.');
 }
 
 /**
@@ -578,4 +596,6 @@ export async function nativeStop(): Promise<void> {
   if (typeof speechSynthesis !== 'undefined') {
     try { speechSynthesis.cancel(); } catch { /* ignore */ }
   }
+  // Stop cloud audio if playing
+  cloudStop();
 }
