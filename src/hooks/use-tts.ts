@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { isNative, getNativeVoices, nativeSpeak, nativeStop, openNativeTtsInstall, runTTSDiagnostics, setDiagError, type TTSDiagnostics } from "@/lib/native-tts";
+import { toast } from "sonner";
 
 const MAX_CHUNK_CHARS = 80;
 
@@ -98,7 +99,6 @@ export function useTTS() {
 
   const useNativeRef = useRef(isNative());
   const onEndCallbackRef = useRef<(() => void) | null>(null);
-  const cancelingRef = useRef(false);
   const chunksRef = useRef<string[]>([]);
   const chunkOffsetsRef = useRef<number[]>([]);
   const currentChunkRef = useRef(0);
@@ -111,6 +111,9 @@ export function useTTS() {
   const calibratedCpsRef = useRef(Number(localStorage.getItem('nr-ttsCps')) || 0);
   const calibratedRateRef = useRef(Number(localStorage.getItem('nr-ttsCpsRate')) || 1);
   const installPromptShownRef = useRef(false);
+
+  // FIX #1: Generation counter to prevent race conditions
+  const generationRef = useRef(0);
 
   const selectedVoiceRef = useRef(selectedVoice);
   const rateRef = useRef(rate);
@@ -155,15 +158,12 @@ export function useTTS() {
     };
 
     const ensureVoices = (mapped: TTSVoice[]): TTSVoice[] => {
-      // Always guarantee at least the system default voices exist
       if (mapped.length === 0) return SYSTEM_DEFAULT_VOICES;
-      // If system defaults are already included (from native-tts), keep as-is
       if (mapped.some(v => v.voiceURI.startsWith('__system_default'))) return mapped;
       return mapped;
     };
 
     const loadNativeVoices = async () => {
-      // Immediate fallback so the dropdown is never empty while native loading runs
       applyVoices(SYSTEM_DEFAULT_VOICES);
       setDebugInfo(`Native=${useNativeRef.current}, WebSpeech=${typeof speechSynthesis !== 'undefined'}, loading...`);
 
@@ -283,8 +283,11 @@ export function useTTS() {
   }, []);
 
   // ─── Native chunk speaker ───
-  const speakChunkNative = useCallback(async (chunkIndex: number) => {
-    if (!speakingRef.current) return;
+  // FIX #1: Accept generation to detect stale calls
+  // FIX #2: Use voiceURI instead of fragile index
+  // FIX #4: Check pausedRef to avoid false error on pause stop
+  const speakChunkNative = useCallback(async (chunkIndex: number, gen: number) => {
+    if (!speakingRef.current || gen !== generationRef.current) return;
     const chunks = chunksRef.current;
     const offsets = chunkOffsetsRef.current;
 
@@ -308,19 +311,19 @@ export function useTTS() {
     startWordStepper(chunkText, globalOffset, rateRef.current);
 
     try {
-      // Find the selected voice — skip voice index for system defaults
+      // FIX #2: Resolve voice by voiceURI, not by fragile array index
       const selectedV = voices.find(v => v.name === selectedVoiceRef.current);
       const isSystemDefault = !selectedV || selectedV.voiceURI.startsWith('__system_default');
-      // For non-default voices, find their index (excluding system defaults)
-      const realVoices = voices.filter(v => !v.voiceURI.startsWith('__system_default'));
-      const voiceIndex = isSystemDefault ? -1 : realVoices.findIndex(v => v.name === selectedVoiceRef.current);
+
+      // Pass voiceURI to nativeSpeak so it can match by URI on the native side
       const result = await nativeSpeak({
         text: chunkText,
         lang: selectedV?.lang || (typeof navigator !== 'undefined' ? navigator.language : 'en-US'),
         rate: rateRef.current,
         pitch: pitchRef.current,
-        voice: voiceIndex >= 0 ? voiceIndex : undefined,
+        voiceURI: isSystemDefault ? undefined : selectedV?.voiceURI,
       });
+
       if (chunkIndex === 0) {
         setDebugInfo(prev => prev + ` | Engine: ${result.engine}`);
       }
@@ -339,11 +342,23 @@ export function useTTS() {
       }
 
       clearWordTimer();
-      if (speakingRef.current && !cancelingRef.current) {
-        speakChunkNative(chunkIndex + 1);
+
+      // FIX #1: Check generation before advancing to next chunk
+      if (speakingRef.current && gen === generationRef.current && !pausedRef.current) {
+        speakChunkNative(chunkIndex + 1, gen);
       }
     } catch (e) {
-      if (cancelingRef.current) return;
+      // FIX #4: If paused, the stop() call caused this error — don't reset state
+      if (pausedRef.current) {
+        clearWordTimer();
+        return;
+      }
+      // FIX #1: Stale generation — ignore silently
+      if (gen !== generationRef.current) {
+        clearWordTimer();
+        return;
+      }
+
       const message = e instanceof Error ? e.message : String(e);
       console.warn('[NativeTTS] speak error:', message);
       setDiagError(message);
@@ -356,6 +371,12 @@ export function useTTS() {
         }
       }
 
+      // FIX #5: Show user-facing error instead of silent failure
+      toast.error("Erro no motor de voz", {
+        description: message.length > 100 ? message.slice(0, 100) + '…' : message,
+        duration: 5000,
+      });
+
       clearWordTimer();
       speakingRef.current = false;
       setIsSpeaking(false);
@@ -365,8 +386,8 @@ export function useTTS() {
   }, [clearWordTimer, updatePosition, startWordStepper, voices]);
 
   // ─── Web Speech API chunk speaker ───
-  const speakChunkWeb = useCallback((chunkIndex: number) => {
-    if (!speakingRef.current) return;
+  const speakChunkWeb = useCallback((chunkIndex: number, gen: number) => {
+    if (!speakingRef.current || gen !== generationRef.current) return;
     const chunks = chunksRef.current;
     const offsets = chunkOffsetsRef.current;
 
@@ -389,7 +410,6 @@ export function useTTS() {
     updatePosition(globalOffset);
 
     const utterance = new SpeechSynthesisUtterance(chunkText);
-    // Find the real SpeechSynthesisVoice from the browser
     if (typeof speechSynthesis !== 'undefined') {
       const webVoices = speechSynthesis.getVoices();
       const voice = webVoices.find(v => v.name === selectedVoiceRef.current);
@@ -409,7 +429,7 @@ export function useTTS() {
     };
 
     utterance.onstart = () => {
-      if (cancelingRef.current) return;
+      if (gen !== generationRef.current) return;
       chunkStartTimeRef.current = performance.now();
       if (!boundaryFiredRef.current && speakingRef.current) {
         startWordStepper(chunkText, globalOffset, rateRef.current);
@@ -417,7 +437,7 @@ export function useTTS() {
     };
 
     utterance.onend = () => {
-      if (cancelingRef.current) return;
+      if (gen !== generationRef.current) return;
       clearWordTimer();
       if (!boundaryFiredRef.current && chunkStartTimeRef.current > 0) {
         const actualDurationMs = performance.now() - chunkStartTimeRef.current;
@@ -432,12 +452,19 @@ export function useTTS() {
           }
         }
       }
-      speakChunkWeb(chunkIndex + 1);
+      speakChunkWeb(chunkIndex + 1, gen);
     };
 
     utterance.onerror = (e) => {
-      if (cancelingRef.current || e.error === 'canceled' || e.error === 'interrupted') return;
+      if (gen !== generationRef.current || e.error === 'canceled' || e.error === 'interrupted') return;
       clearWordTimer();
+
+      // FIX #5: Show user-facing error
+      toast.error("Erro no motor de voz (Web)", {
+        description: e.error || "Erro desconhecido",
+        duration: 5000,
+      });
+
       speakingRef.current = false;
       setIsSpeaking(false);
       setIsPaused(false);
@@ -449,16 +476,17 @@ export function useTTS() {
   }, [clearWordTimer, updatePosition, startWordStepper]);
 
   // ─── Unified speak function ───
-  const speakChunk = useCallback((chunkIndex: number) => {
+  const speakChunk = useCallback((chunkIndex: number, gen: number) => {
     if (useNativeRef.current) {
-      speakChunkNative(chunkIndex);
+      speakChunkNative(chunkIndex, gen);
     } else {
-      speakChunkWeb(chunkIndex);
+      speakChunkWeb(chunkIndex, gen);
     }
   }, [speakChunkNative, speakChunkWeb]);
 
   const cancelCurrentSpeech = useCallback(async (resetUi: boolean) => {
-    cancelingRef.current = true;
+    // FIX #1: Increment generation to invalidate all in-flight chunk callbacks
+    generationRef.current++;
     speakingRef.current = false;
     pausedRef.current = false;
 
@@ -473,7 +501,7 @@ export function useTTS() {
     }
 
     clearWordTimer();
-    cancelingRef.current = false;
+    // No more cancelingRef needed — generation handles it
     chunksRef.current = [];
     chunkOffsetsRef.current = [];
 
@@ -510,43 +538,43 @@ export function useTTS() {
     }
     chunkOffsetsRef.current = offsets;
 
+    // FIX #1: New generation for this speak session
+    const gen = ++generationRef.current;
     speakingRef.current = true;
     pausedRef.current = false;
     setIsSpeaking(true);
     setIsPaused(false);
     setActiveCharIndex(startCharIndex);
 
-    speakChunk(0);
+    speakChunk(0, gen);
   }, [speakChunk, cancelCurrentSpeech]);
 
   const speak = useCallback(async (text: string) => {
     await speakFromIndex(text, 0);
   }, [speakFromIndex]);
 
+  // FIX #4: Improved pause — set pausedRef BEFORE stopping to prevent error handler reset
   const pause = useCallback(() => {
-    // Native TTS plugin doesn't support pause — we stop and track position
+    pausedRef.current = true;
+    setIsPaused(true);
+    clearWordTimer();
+
     if (useNativeRef.current) {
       void nativeStop();
-      pausedRef.current = true;
-      clearWordTimer();
-      setIsPaused(true);
       return;
     }
     if (typeof speechSynthesis === 'undefined') return;
     speechSynthesis.pause();
-    pausedRef.current = true;
-    clearWordTimer();
-    setIsPaused(true);
   }, [clearWordTimer]);
 
+  // FIX #4: Improved resume — properly restart with current generation
   const resume = useCallback(() => {
     if (useNativeRef.current) {
-      // Resume from current chunk on native
       pausedRef.current = false;
+      speakingRef.current = true;
       setIsPaused(false);
-      if (speakingRef.current) {
-        speakChunk(currentChunkRef.current);
-      }
+      // Use current generation to resume
+      speakChunk(currentChunkRef.current, generationRef.current);
       return;
     }
     if (typeof speechSynthesis === 'undefined') return;
