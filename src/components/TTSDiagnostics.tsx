@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Loader2, RefreshCw, Settings2, Volume2 } from "lucide-react";
+import { Loader2, RefreshCw, Settings2, Volume2, ExternalLink, AlertTriangle } from "lucide-react";
 import type { TTSDiagnostics as DiagData } from "@/lib/native-tts";
+import { isNative } from "@/lib/native-tts";
+import { toast } from "sonner";
 
 interface TTSDiagnosticsProps {
   debugInfo: string;
@@ -12,11 +14,41 @@ interface TTSDiagnosticsProps {
 
 const REFRESH_INTERVAL_MS = 3000;
 
+/** Quick test: speak a short sentence using Web Speech API directly */
+function testWebSpeechDirect(): boolean {
+  if (typeof speechSynthesis === 'undefined') return false;
+  try {
+    speechSynthesis.cancel();
+    const voices = speechSynthesis.getVoices();
+    const utt = new SpeechSynthesisUtterance("Teste de voz. Voice test.");
+    utt.lang = 'pt-BR';
+    utt.rate = 1;
+    utt.volume = 1;
+    const ptVoice = voices.find(v => v.lang.startsWith('pt'));
+    if (ptVoice) utt.voice = ptVoice;
+    else if (voices.length > 0) utt.voice = voices[0];
+
+    utt.onerror = (e) => {
+      toast.error("Erro no teste de voz", { description: e.error || "Falha desconhecida" });
+    };
+    utt.onend = () => {
+      toast.success("Teste de voz concluído!");
+    };
+
+    speechSynthesis.speak(utt);
+    return true;
+  } catch (e) {
+    console.warn('[TTSDiag] testWebSpeechDirect failed:', e);
+    return false;
+  }
+}
+
 export function TTSDiagnosticsPanel({ debugInfo, voiceCount, runDiagnostics, openInstall }: TTSDiagnosticsProps) {
   const [showDiag, setShowDiag] = useState(false);
   const [diagData, setDiagData] = useState<DiagData | null>(null);
   const [diagError, setDiagError] = useState<string | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
+  const native = isNative();
 
   const handleRunDiag = useCallback(async () => {
     setDiagLoading(true);
@@ -40,6 +72,26 @@ export function TTSDiagnosticsPanel({ debugInfo, voiceCount, runDiagnostics, ope
     return () => clearInterval(interval);
   }, [showDiag, handleRunDiag]);
 
+  const handleOpenInstall = async () => {
+    const opened = await openInstall();
+    if (!opened) {
+      toast.info("Instale um motor de voz", {
+        description: "No Android: Configurações → Idioma e entrada → Motor de texto para fala. No navegador web, a Web Speech API é usada automaticamente.",
+        duration: 8000,
+      });
+    }
+  };
+
+  const handleTestVoice = () => {
+    const ok = testWebSpeechDirect();
+    if (!ok) {
+      toast.error("Web Speech API indisponível", {
+        description: "Seu navegador não suporta síntese de voz. Tente o Chrome ou Edge.",
+        duration: 5000,
+      });
+    }
+  };
+
   return (
     <div className="mt-3 space-y-2">
       <div className="p-2 rounded-lg bg-muted/50 border border-border/40">
@@ -47,7 +99,7 @@ export function TTSDiagnosticsPanel({ debugInfo, voiceCount, runDiagnostics, ope
           🔧 {debugInfo} | Voices: {voiceCount}
         </p>
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button
           variant="outline" size="sm"
           onClick={() => setShowDiag(!showDiag)}
@@ -58,18 +110,27 @@ export function TTSDiagnosticsPanel({ debugInfo, voiceCount, runDiagnostics, ope
         </Button>
         <Button
           variant="outline" size="sm"
-          onClick={() => openInstall()}
+          onClick={handleTestVoice}
           className="rounded-lg gap-1.5 text-xs border-border/60"
-          title="Abrir configurações de voz do Android"
+          title="Testar se a voz está funcionando"
         >
           <Volume2 className="h-3 w-3" />
-          Config. motor
+          Testar voz
+        </Button>
+        <Button
+          variant="outline" size="sm"
+          onClick={handleOpenInstall}
+          className="rounded-lg gap-1.5 text-xs border-border/60"
+          title={native ? "Abrir configurações de voz do Android" : "Ver instruções para instalar motor de voz"}
+        >
+          <ExternalLink className="h-3 w-3" />
+          {native ? "Config. motor" : "Instalar motor TTS"}
         </Button>
       </div>
       {showDiag && (
         <div className="p-3 rounded-lg bg-card border border-border/60 space-y-2 animate-fade-in">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-foreground">Diagnóstico do Motor TTS (tempo real)</p>
+            <p className="text-xs font-semibold text-foreground">Diagnóstico do Motor TTS</p>
             <Button variant="ghost" size="sm" onClick={handleRunDiag} disabled={diagLoading} className="h-6 px-2 text-[10px]">
               {diagLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
             </Button>
@@ -79,25 +140,52 @@ export function TTSDiagnosticsPanel({ debugInfo, voiceCount, runDiagnostics, ope
               <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                 <span>Plataforma nativa:</span>
                 <span className={diagData.isNativePlatform ? 'text-primary' : 'text-muted-foreground'}>
-                  {diagData.isNativePlatform ? '✅ Sim' : '⚠️ Web'}
+                  {diagData.isNativePlatform ? '✅ Sim' : '⚠️ Web (navegador)'}
                 </span>
-                <span>Plugin Capacitor:</span>
-                <span className={diagData.pluginAvailable ? 'text-primary' : 'text-destructive'}>
-                  {diagData.pluginAvailable ? '✅ Disponível' : '❌ Indisponível'}
-                </span>
-                <span>Engine pronto:</span>
-                <span className={diagData.pluginReady ? 'text-primary' : 'text-muted-foreground'}>
-                  {diagData.pluginReady ? '✅ Sim' : '⏳ Não/Inicializando'}
-                </span>
-                <span>Vozes plugin:</span>
-                <span className={diagData.voiceCount > 0 ? 'text-primary' : 'text-muted-foreground'}>
-                  {diagData.voiceCount}
-                </span>
+                {diagData.isNativePlatform && (
+                  <>
+                    <span>Plugin Capacitor:</span>
+                    <span className={diagData.pluginAvailable ? 'text-primary' : 'text-destructive'}>
+                      {diagData.pluginAvailable ? '✅ Disponível' : '❌ Indisponível'}
+                    </span>
+                    <span>Engine pronto:</span>
+                    <span className={diagData.pluginReady ? 'text-primary' : 'text-muted-foreground'}>
+                      {diagData.pluginReady ? '✅ Sim' : '⏳ Não/Inicializando'}
+                    </span>
+                    <span>Vozes plugin:</span>
+                    <span className={diagData.voiceCount > 0 ? 'text-primary' : 'text-muted-foreground'}>
+                      {diagData.voiceCount}
+                    </span>
+                  </>
+                )}
                 <span>WebSpeech API:</span>
                 <span className={diagData.webSpeechAvailable ? 'text-primary' : 'text-destructive'}>
                   {diagData.webSpeechAvailable ? `✅ ${diagData.webSpeechVoiceCount} vozes` : '❌ Indisponível'}
                 </span>
               </div>
+
+              {/* Web-specific guidance */}
+              {!diagData.isNativePlatform && diagData.webSpeechVoiceCount === 0 && (
+                <div className="mt-2 p-2 rounded bg-accent/50 border border-border/40">
+                  <div className="flex gap-1.5 items-start">
+                    <AlertTriangle className="h-3 w-3 text-accent-foreground mt-0.5 shrink-0" />
+                    <div className="text-[10px] text-accent-foreground">
+                      <p className="font-semibold mb-1">Nenhuma voz carregada</p>
+                      <p>Tente usar o <strong>Google Chrome</strong> ou <strong>Microsoft Edge</strong> para melhor suporte a vozes.</p>
+                      <p className="mt-1">No Android, instale o <strong>Google Text-to-Speech</strong> pela Play Store para ter vozes disponíveis.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!diagData.isNativePlatform && diagData.webSpeechVoiceCount > 0 && (
+                <div className="mt-2 p-2 rounded bg-primary/10 border border-primary/20">
+                  <p className="text-[10px] text-primary">
+                    ✅ Web Speech API pronta com {diagData.webSpeechVoiceCount} vozes. Use o botão "Testar voz" acima.
+                  </p>
+                </div>
+              )}
+
               {diagData.supportedLanguages.length > 0 && (
                 <div className="mt-2">
                   <p className="text-[10px] font-semibold text-foreground/70 mb-1">

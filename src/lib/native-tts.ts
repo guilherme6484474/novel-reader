@@ -254,8 +254,13 @@ export async function getNativeVoices(): Promise<NativeVoice[]> {
 }
 
 export async function openNativeTtsInstall(): Promise<boolean> {
+  if (!isNative()) {
+    // On web, we can't open Android TTS settings — return false so UI can show guidance
+    return false;
+  }
+
   const plugin = await getPlugin();
-  if (!plugin || !isNative()) return false;
+  if (!plugin) return false;
 
   try {
     await plugin.openInstall();
@@ -292,23 +297,26 @@ export async function runTTSDiagnostics(): Promise<TTSDiagnostics> {
     lastError: lastDiagError,
   };
 
-  try {
-    const plugin = await getPlugin();
-    diag.pluginAvailable = !!plugin;
+  // Only try plugin on native — avoids long timeouts on web
+  if (isNative()) {
+    try {
+      const plugin = await getPlugin();
+      diag.pluginAvailable = !!plugin;
 
-    if (plugin) {
-      try {
-        const langResult = await withTimeout(plugin.getSupportedLanguages(), 2000, 'diag-langs');
-        diag.supportedLanguages = (langResult.languages || []).sort();
-        diag.pluginReady = true;
-      } catch { /* not ready */ }
+      if (plugin) {
+        try {
+          const langResult = await withTimeout(plugin.getSupportedLanguages(), 2000, 'diag-langs');
+          diag.supportedLanguages = (langResult.languages || []).sort();
+          diag.pluginReady = true;
+        } catch { /* not ready */ }
 
-      try {
-        const voiceResult = await withTimeout(plugin.getSupportedVoices(), 2000, 'diag-voices');
-        diag.voiceCount = (voiceResult.voices || []).length;
-      } catch { /* ignore */ }
-    }
-  } catch { /* ignore */ }
+        try {
+          const voiceResult = await withTimeout(plugin.getSupportedVoices(), 2000, 'diag-voices');
+          diag.voiceCount = (voiceResult.voices || []).length;
+        } catch { /* ignore */ }
+      }
+    } catch { /* ignore */ }
+  }
 
   if (diag.webSpeechAvailable) {
     try { diag.webSpeechVoiceCount = speechSynthesis.getVoices().length; } catch {}
