@@ -5,6 +5,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { useTTS } from "@/hooks/use-tts";
+import { useIsAdmin } from "@/hooks/use-is-admin";
 import { initCloudAudio } from "@/lib/cloud-tts";
 import { usePwaInstall } from "@/hooks/use-pwa-install";
 import { scrapeChapter, translateChapterStream, type ChapterData } from "@/lib/api/novel";
@@ -16,7 +17,7 @@ import {
   BookOpen, ChevronLeft, ChevronRight, Globe, Loader2,
   Pause, Play, Square, Volume2, Settings2, Search,
   Moon, Sun, LogIn, LogOut, History, X, Trash2, Minus, Plus, Type,
-  RefreshCw, Download,
+  RefreshCw, Download, BarChart3,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
@@ -138,6 +139,7 @@ const Index = () => {
   const [autoRead, setAutoRead] = useState(() => localStorage.getItem('nr-autoRead') === 'true');
   const autoReadRef = useRef(autoRead);
   const tts = useTTS();
+  const { isAdmin } = useIsAdmin();
   const pwa = usePwaInstall();
   const { theme, setTheme } = useTheme();
   const { user, signOut } = useAuth();
@@ -486,11 +488,11 @@ const Index = () => {
 
           {/* Settings panel */}
           {showSettings && (
-            <div className="mt-3 p-4 rounded-xl border border-border/60 bg-card space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="mt-3 p-3 sm:p-4 rounded-xl border border-border/60 bg-card space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
               <div>
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Leitura</p>
-                <div className="flex items-center gap-3">
-                  <Type className="h-3.5 w-3.5 text-muted-foreground" />
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <Type className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   <span className="text-xs text-muted-foreground w-12">Fonte</span>
                   <Button
                     variant="outline" size="icon"
@@ -519,8 +521,8 @@ const Index = () => {
               </div>
               <div>
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Voz (TTS)</p>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-muted-foreground w-10">Voz</span>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                  <span className="text-xs text-muted-foreground sm:w-10">Voz</span>
                   <Select value={tts.selectedVoice} onValueChange={(v) => {
                       tts.setSelectedVoice(v);
                       // Preview: speak a short sample in the voice's language
@@ -607,25 +609,25 @@ const Index = () => {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="flex items-center gap-3 mt-2">
-                  <span className="text-xs text-muted-foreground w-10">Vel.</span>
+                <div className="flex items-center gap-2 sm:gap-3 mt-2">
+                  <span className="text-xs text-muted-foreground w-8 sm:w-10">Vel.</span>
                   <Slider
                     value={[tts.rate]}
                     onValueChange={([v]) => tts.setRate(v)}
                     min={0.5} max={2} step={0.1}
                     className="flex-1"
                   />
-                  <span className="text-xs font-medium text-foreground w-10 text-right">{tts.rate}x</span>
+                  <span className="text-xs font-medium text-foreground w-8 sm:w-10 text-right">{tts.rate}x</span>
                 </div>
-                <div className="flex items-center gap-3 mt-2">
-                  <span className="text-xs text-muted-foreground w-10">Tom</span>
+                <div className="flex items-center gap-2 sm:gap-3 mt-2">
+                  <span className="text-xs text-muted-foreground w-8 sm:w-10">Tom</span>
                   <Slider
                     value={[tts.pitch]}
                     onValueChange={([v]) => tts.setPitch(v)}
                     min={0.5} max={2} step={0.1}
                     className="flex-1"
                   />
-                  <span className="text-xs font-medium text-foreground w-10 text-right">{tts.pitch}</span>
+                  <span className="text-xs font-medium text-foreground w-8 sm:w-10 text-right">{tts.pitch}</span>
                 </div>
                 {/* TTS Diagnostics */}
                 <TTSDiagnosticsPanel
@@ -675,6 +677,20 @@ const Index = () => {
                   </div>
                 )}
               </div>
+              {/* Admin: TTS Usage */}
+              {isAdmin && (
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Administração</p>
+                  <Button
+                    variant="outline" size="sm"
+                    onClick={() => navigate('/tts-usage')}
+                    className="rounded-lg gap-2 text-xs border-border/60"
+                  >
+                    <BarChart3 className="h-3.5 w-3.5" />
+                    Consumo TTS
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </div>
