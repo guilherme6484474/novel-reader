@@ -56,40 +56,43 @@ async function releaseScreenWakeLock() {
   }
 }
 
-// Re-acquire on visibility change (the lock is lost when tab goes background)
+// Re-acquire on visibility change (the lock is lost when tab goes background/screen off)
 if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && isKeptAwake) {
+      ttsLog('[KeepAwake] Visibility restored, re-acquiring wake lock');
       acquireScreenWakeLock();
+      // Also ensure silent audio is still running
+      if (!silentAudioActive) startSilentAudio();
     }
   });
 }
 
 // ─── Web: Silent audio loop ───
-// Playing a near-silent audio keeps the browser process alive
-// even with screen off on mobile browsers (Chrome, Firefox, Safari).
-let silentAudioCtx: AudioContext | null = null;
-let silentOscillator: OscillatorNode | null = null;
-let silentGain: GainNode | null = null;
+// An HTML <audio> element playing a silent MP3 in a loop is the most reliable
+// way to keep Chrome on Android alive when the screen is off.
+// The Web Audio API oscillator approach often gets suspended by the OS.
+let silentAudioEl: HTMLAudioElement | null = null;
 let silentAudioActive = false;
+
+// Tiny silent MP3 (~0.5s) encoded as base64 data URI — loops forever
+const SILENT_MP3 = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRBkFAAAAAAD/+1DEAAAHAAGf9AAAIMAAMO/4AAQAAAAANIAAAAADSA0gNIDSA0mf/6TQDSA0gNIDSA0gNJn/5MgNIDSA0gNIDSA0mf/lMgNIDSA0gNIDSBpMgNIDSA0gNIDSA0gNID/+xDELgPAAAGkAAAAIAAANIAAAAQSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIA=';
 
 function startSilentAudio() {
   if (silentAudioActive) return;
   try {
-    silentAudioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    silentOscillator = silentAudioCtx.createOscillator();
-    silentGain = silentAudioCtx.createGain();
-
-    // Emit a 1Hz tone at nearly zero volume — inaudible but keeps audio session alive
-    silentOscillator.frequency.setValueAtTime(1, silentAudioCtx.currentTime);
-    silentGain.gain.setValueAtTime(0.001, silentAudioCtx.currentTime);
-
-    silentOscillator.connect(silentGain);
-    silentGain.connect(silentAudioCtx.destination);
-    silentOscillator.start();
-
+    silentAudioEl = new Audio(SILENT_MP3);
+    silentAudioEl.loop = true;
+    silentAudioEl.volume = 0.01; // Near-silent but enough to keep process alive
+    // Play returns a promise — catch autoplay errors
+    const playPromise = silentAudioEl.play();
+    if (playPromise) {
+      playPromise.catch((e) => {
+        ttsWarn('[KeepAwake] Silent audio autoplay blocked: ' + String(e));
+      });
+    }
     silentAudioActive = true;
-    ttsLog('[KeepAwake] Silent audio loop started');
+    ttsLog('[KeepAwake] Silent audio loop started (HTML Audio)');
   } catch (e) {
     ttsWarn('[KeepAwake] Silent audio failed: ' + String(e));
   }
@@ -98,16 +101,14 @@ function startSilentAudio() {
 function stopSilentAudio() {
   if (!silentAudioActive) return;
   try {
-    silentOscillator?.stop();
-    silentOscillator?.disconnect();
-    silentGain?.disconnect();
-    silentAudioCtx?.close();
+    if (silentAudioEl) {
+      silentAudioEl.pause();
+      silentAudioEl.src = '';
+      silentAudioEl = null;
+    }
   } catch {
     // ignore cleanup errors
   }
-  silentOscillator = null;
-  silentGain = null;
-  silentAudioCtx = null;
   silentAudioActive = false;
   ttsLog('[KeepAwake] Silent audio loop stopped');
 }
