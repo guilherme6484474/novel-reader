@@ -5,6 +5,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { useTTS } from "@/hooks/use-tts";
+import { initCloudAudio } from "@/lib/cloud-tts";
 import { usePwaInstall } from "@/hooks/use-pwa-install";
 import { scrapeChapter, translateChapterStream, type ChapterData } from "@/lib/api/novel";
 import { getCachedTranslation, setCachedTranslation, clearTranslationCache } from "@/lib/translation-cache";
@@ -904,6 +905,9 @@ const Index = () => {
                   size="sm"
                   disabled={tts.isLoading}
                   onClick={async () => {
+                    // FIX #8: Pre-init AudioContext from user gesture context
+                    // This unlocks audio playback on Android WebView
+                    initCloudAudio();
                     toast.info("Iniciando leitura...", { duration: 2000 });
                     try {
                       await tts.speak(displayText);
