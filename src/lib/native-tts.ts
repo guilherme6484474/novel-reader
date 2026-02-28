@@ -384,82 +384,30 @@ export async function nativeSpeak(options: {
 }): Promise<{ engine: string }> {
   ttsLog('nativeSpeak: textLen=' + options.text.length + ' lang=' + options.lang + ' rate=' + options.rate + ' voiceURI=' + options.voiceURI + ' isNative=' + isNative());
 
-  // ─── Strategy 1: Try native Capacitor plugin FIRST ───
-  const plugin = await getPlugin();
-  ttsLog('nativeSpeak: plugin=' + !!plugin);
-
-  if (plugin) {
-    let requestedLang = options.lang;
-    let triedWithoutVoice = false;
-
-    // FIX #6: Reduced to 2 attempts max for faster Cloud TTS fallback
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const resolvedLang = await resolveBestPluginLanguage(plugin, requestedLang);
-        ttsLog('resolvedLang = ' + resolvedLang);
-
-        // FIX #2: Resolve voice by URI instead of using raw index
-        const voiceIndex = triedWithoutVoice ? undefined : await resolveVoiceIndex(plugin, options.voiceURI);
-        ttsLog('voiceIndex = ' + voiceIndex);
-
-        const speakOptions: any = {
-          text: options.text,
-          lang: resolvedLang,
-          rate: options.rate || 1.0,
-          pitch: options.pitch || 1.0,
-          volume: 1.0,
-        };
-
-        // Only set voice index when we successfully resolved one
-        if (voiceIndex !== undefined && voiceIndex >= 0) {
-          speakOptions.voice = voiceIndex;
-        }
-
-        ttsLog('Calling plugin.speak: ' + JSON.stringify(speakOptions));
-        await withTimeout(plugin.speak(speakOptions), SPEAK_TIMEOUT_MS, 'plugin.speak');
-        clearDiagError();
-        ttsLog('plugin.speak succeeded');
-        return { engine: `capacitor-plugin(${resolvedLang})` };
-      } catch (error) {
-        const message = getErrorMessage(error);
-        const lower = message.toLowerCase();
-        ttsWarn(`Plugin speak failed (attempt ${attempt + 1}): ${message}`);
-
-        if (lower.includes('this language is not supported')) {
-          requestedLang = undefined;
-          continue;
-        }
-
-        // FIX #6: On no-engine or timeout, break immediately to reach Cloud TTS faster
-        if (isNoEngineError(lower)) {
-          ttsWarn('No TTS engine on device, skipping to Cloud TTS...');
-          break;
-        }
-
-        if (lower.includes('not yet initialized')) {
-          await sleep(300);
-          continue;
-        }
-
-        if (lower.includes('timeout')) {
-          ttsWarn('Timeout detected, skipping to Cloud TTS...');
-          break;
-        }
-
-        // If we had a voice set, retry once without voice (default system voice)
-        if (!triedWithoutVoice && options.voiceURI) {
-          ttsLog('Retrying without specific voice...');
-          triedWithoutVoice = true;
-          continue;
-        }
-
-        break;
-      }
+  // ─── ANDROID NATIVE: Skip ALL local engines, go directly to Cloud TTS ───
+  // WebView on Android does not support Web Speech API and the native plugin
+  // hangs/crashes on many devices (Samsung S23 FE confirmed).
+  if (isNative()) {
+    ttsLog('Native platform detected — using Cloud TTS directly (bypassing local engines)');
+    try {
+      const cloudResult = await cloudSpeak({
+        text: options.text,
+        lang: options.lang || 'pt-BR',
+        rate: options.rate,
+        pitch: options.pitch,
+      });
+      clearDiagError();
+      ttsLog('Cloud TTS succeeded on native: ' + cloudResult.engine);
+      return cloudResult;
+    } catch (cloudErr) {
+      const cloudMsg = cloudErr instanceof Error ? cloudErr.message : String(cloudErr);
+      ttsError('Cloud TTS failed on native: ' + cloudMsg);
+      throw new Error('Falha ao reproduzir áudio na nuvem. Verifique sua conexão de internet. Detalhe: ' + cloudMsg);
     }
   }
 
-  // ─── Strategy 2: Try Web Speech API as fallback ───
-  ttsLog('Falling back to Web Speech API...');
+  // ─── WEB BROWSER: Try Web Speech API first, then Cloud TTS fallback ───
+  ttsLog('Browser detected — trying Web Speech API...');
   const webResult = await tryWebSpeech(options);
   if (webResult) {
     clearDiagError();
@@ -467,8 +415,7 @@ export async function nativeSpeak(options: {
     return webResult;
   }
 
-  // ─── Strategy 3: Cloud TTS fallback (ElevenLabs → Google → Edge TTS) ───
-  ttsLog('All local engines failed. Trying Cloud TTS...');
+  ttsLog('Web Speech failed. Trying Cloud TTS...');
   try {
     const cloudResult = await cloudSpeak({
       text: options.text,
@@ -484,8 +431,7 @@ export async function nativeSpeak(options: {
     ttsWarn('Cloud TTS also failed: ' + cloudMsg);
   }
 
-  // FIX #5: Descriptive error message for the caller to display
-  throw new Error('Nenhum motor de voz produziu áudio (local e nuvem falharam). Verifique sua conexão de internet ou instale um motor TTS nas configurações do Android.');
+  throw new Error('Nenhum motor de voz produziu áudio. Verifique sua conexão de internet.');
 }
 
 /**
