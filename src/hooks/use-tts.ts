@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { isNative, getNativeVoices, nativeSpeak, nativeStop, openNativeTtsInstall, runTTSDiagnostics, setDiagError, type TTSDiagnostics } from "@/lib/native-tts";
 import { ttsLog, ttsError } from "@/lib/tts-debug-log";
 import { toast } from "sonner";
-import { acquireWakeLock, releaseWakeLock } from "@/lib/keep-awake";
+import { acquireWakeLock, releaseWakeLock, setMediaSessionHandlers } from "@/lib/keep-awake";
 import { startForegroundService, stopForegroundService } from "@/lib/foreground-service";
 
 // Small chunks for Web Speech (needs frequent boundary events), large for Cloud TTS
@@ -563,23 +563,6 @@ export function useTTS() {
     speakChunk(0, gen);
   }, [speakChunk, cancelCurrentSpeech]);
 
-  const speak = useCallback(async (text: string) => {
-    ttsLog('[useTTS] speak() called, textLen=' + text.length);
-    setIsLoading(true);
-    try {
-      await startForegroundService();
-      await acquireWakeLock();
-      await speakFromIndex(text, 0);
-    } catch (e) {
-      ttsError('[useTTS] speak() error: ' + (e instanceof Error ? e.message : String(e)));
-      await releaseWakeLock();
-      await stopForegroundService();
-      throw e;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [speakFromIndex]);
-
   // FIX #4: Improved pause — set pausedRef BEFORE stopping to prevent error handler reset
   const pause = useCallback(() => {
     pausedRef.current = true;
@@ -623,6 +606,29 @@ export function useTTS() {
     await releaseWakeLock();
     await stopForegroundService();
   }, [cancelCurrentSpeech]);
+
+  const speak = useCallback(async (text: string) => {
+    ttsLog('[useTTS] speak() called, textLen=' + text.length);
+    setIsLoading(true);
+    try {
+      await startForegroundService();
+      await acquireWakeLock();
+      // Wire lock-screen media controls (web only)
+      setMediaSessionHandlers({
+        onPause: () => pause(),
+        onPlay: () => resume(),
+        onStop: () => { void stop(); },
+      });
+      await speakFromIndex(text, 0);
+    } catch (e) {
+      ttsError('[useTTS] speak() error: ' + (e instanceof Error ? e.message : String(e)));
+      await releaseWakeLock();
+      await stopForegroundService();
+      throw e;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [speakFromIndex, pause, resume, stop]);
 
   return {
     isSpeaking, isPaused, isLoading, progress, voices, selectedVoice,
