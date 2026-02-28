@@ -2,10 +2,18 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { isNative, getNativeVoices, nativeSpeak, nativeStop, openNativeTtsInstall, runTTSDiagnostics, setDiagError, type TTSDiagnostics } from "@/lib/native-tts";
 import { ttsLog, ttsError } from "@/lib/tts-debug-log";
 import { toast } from "sonner";
+import { acquireWakeLock, releaseWakeLock } from "@/lib/keep-awake";
 
-const MAX_CHUNK_CHARS = 80;
+// Small chunks for Web Speech (needs frequent boundary events), large for Cloud TTS
+const MAX_CHUNK_WEB = 80;
+const MAX_CHUNK_CLOUD = 4000; // Google Cloud TTS supports up to 5000 chars
+
+function getMaxChunkChars(): number {
+  return isNative() ? MAX_CHUNK_CLOUD : MAX_CHUNK_WEB;
+}
 
 function splitIntoSentences(text: string): string[] {
+  const maxChunk = getMaxChunkChars();
   const parts: string[] = [];
   const regex = /[^.!?\n]+[.!?\n]+\s*/g;
   let match: RegExpExecArray | null;
@@ -25,16 +33,17 @@ function splitIntoSentences(text: string): string[] {
   const merged: string[] = [];
   let buffer = "";
   for (const part of parts) {
-    if (buffer.length + part.length <= MAX_CHUNK_CHARS) {
+    if (buffer.length + part.length <= maxChunk) {
       buffer += part;
     } else {
       if (buffer) merged.push(buffer);
-      if (part.length > MAX_CHUNK_CHARS) {
+      if (part.length > maxChunk) {
         let remaining = part;
-        while (remaining.length > MAX_CHUNK_CHARS) {
-          let splitAt = remaining.lastIndexOf(', ', MAX_CHUNK_CHARS);
-          if (splitAt <= 0) splitAt = remaining.lastIndexOf(' ', MAX_CHUNK_CHARS);
-          if (splitAt <= 0) splitAt = MAX_CHUNK_CHARS;
+        while (remaining.length > maxChunk) {
+          let splitAt = remaining.lastIndexOf('. ', maxChunk);
+          if (splitAt <= 0) splitAt = remaining.lastIndexOf(', ', maxChunk);
+          if (splitAt <= 0) splitAt = remaining.lastIndexOf(' ', maxChunk);
+          if (splitAt <= 0) splitAt = maxChunk;
           else splitAt += 1;
           merged.push(remaining.slice(0, splitAt));
           remaining = remaining.slice(splitAt);
@@ -300,6 +309,7 @@ export function useTTS() {
       setProgress(100);
       setActiveCharIndex(-1);
       clearWordTimer();
+      void releaseWakeLock();
       onEndCallbackRef.current?.();
       return;
     }
@@ -555,9 +565,11 @@ export function useTTS() {
     ttsLog('[useTTS] speak() called, textLen=' + text.length);
     setIsLoading(true);
     try {
+      await acquireWakeLock();
       await speakFromIndex(text, 0);
     } catch (e) {
       ttsError('[useTTS] speak() error: ' + (e instanceof Error ? e.message : String(e)));
+      await releaseWakeLock();
       throw e;
     } finally {
       setIsLoading(false);
@@ -604,6 +616,7 @@ export function useTTS() {
 
   const stop = useCallback(async () => {
     await cancelCurrentSpeech(true);
+    await releaseWakeLock();
   }, [cancelCurrentSpeech]);
 
   return {
