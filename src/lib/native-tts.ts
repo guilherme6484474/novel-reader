@@ -366,8 +366,8 @@ export async function runTTSDiagnostics(): Promise<TTSDiagnostics> {
   return diag;
 }
 
-// FIX #3: Reduced timeout from 30s to 15s for faster failure detection
-const SPEAK_TIMEOUT_MS = 15000;
+// FIX #6: Aggressive timeout for fast fallback to Cloud TTS
+const SPEAK_TIMEOUT_MS = 5000;
 
 /**
  * Speak text — tries native plugin first, falls back to Web Speech API.
@@ -392,7 +392,8 @@ export async function nativeSpeak(options: {
     let requestedLang = options.lang;
     let triedWithoutVoice = false;
 
-    for (let attempt = 0; attempt < 5; attempt++) {
+    // FIX #6: Reduced to 2 attempts max for faster Cloud TTS fallback
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const resolvedLang = await resolveBestPluginLanguage(plugin, requestedLang);
         ttsLog('resolvedLang = ' + resolvedLang);
@@ -429,18 +430,19 @@ export async function nativeSpeak(options: {
           continue;
         }
 
+        // FIX #6: On no-engine or timeout, break immediately to reach Cloud TTS faster
+        if (isNoEngineError(lower)) {
+          ttsWarn('No TTS engine on device, skipping to Cloud TTS...');
+          break;
+        }
+
         if (lower.includes('not yet initialized')) {
-          await sleep(450);
+          await sleep(300);
           continue;
         }
 
-        if (isNoEngineError(lower)) {
-          ttsWarn('No TTS engine on device, opening install...');
-          await openNativeTtsInstall();
-        }
-
         if (lower.includes('timeout')) {
-          ttsWarn('Timeout detected, breaking retry loop');
+          ttsWarn('Timeout detected, skipping to Cloud TTS...');
           break;
         }
 
@@ -547,13 +549,13 @@ function tryWebSpeech(options: {
           }
         };
 
-        // FIX #3: Reduced safety timeout from 10s to 8s
+        // FIX #6: Reduced safety timeout to 3s for faster Cloud TTS fallback
         setTimeout(() => {
           if (!settled) {
             ttsWarn('WebSpeech timeout, no onend/onerror fired');
             settle(null);
           }
-        }, 8000);
+        }, 3000);
 
         speechSynthesis.speak(utterance);
         ttsLog('speechSynthesis.speak() called');
@@ -574,13 +576,14 @@ function tryWebSpeech(options: {
         speechSynthesis.onvoiceschanged = null;
         doSpeak();
       };
+      // FIX #6: Reduced wait from 1500ms to 500ms
       setTimeout(() => {
         if (!waited) {
           waited = true;
           speechSynthesis.onvoiceschanged = null;
           doSpeak();
         }
-      }, 1500);
+      }, 500);
     } else {
       doSpeak();
     }

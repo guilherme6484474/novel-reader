@@ -72,16 +72,13 @@ export async function cloudSpeak(options: CloudTTSOptions): Promise<{ engine: st
     const audio = new Audio(audioUrl);
     currentAudio = audio;
 
-    audio.oncanplay = () => {
-      ttsLog(`[CloudTTS] Audio ready, playing...`);
-      resolve({ engine: `cloud:${engine}` });
-    };
-
+    // Resolve only when audio playback ENDS, so chunk sequencing works
     audio.onended = () => {
       ttsLog(`[CloudTTS] Audio playback ended`);
       URL.revokeObjectURL(audioUrl);
       currentAudio = null;
       options.onEnd?.();
+      resolve({ engine: `cloud:${engine}` });
     };
 
     audio.onerror = (e) => {
@@ -93,7 +90,9 @@ export async function cloudSpeak(options: CloudTTSOptions): Promise<{ engine: st
       reject(new Error(msg));
     };
 
-    audio.play().catch((e) => {
+    audio.play().then(() => {
+      ttsLog(`[CloudTTS] Audio playing...`);
+    }).catch((e) => {
       const msg = `Audio play() failed: ${e.message}`;
       ttsWarn(`[CloudTTS] ${msg}`);
       URL.revokeObjectURL(audioUrl);
