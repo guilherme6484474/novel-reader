@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { isNative, getNativeVoices, nativeSpeak, nativeStop, openNativeTtsInstall, runTTSDiagnostics, setDiagError, type TTSDiagnostics } from "@/lib/native-tts";
+import { ttsLog, ttsError } from "@/lib/tts-debug-log";
 import { toast } from "sonner";
 
 const MAX_CHUNK_CHARS = 80;
@@ -88,6 +89,7 @@ function normalizeVoices(rawVoices: TTSVoice[]): TTSVoice[] {
 
 export function useTTS() {
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [progress, setProgress] = useState(0);
   const [voices, setVoices] = useState<TTSVoice[]>([]);
@@ -550,7 +552,16 @@ export function useTTS() {
   }, [speakChunk, cancelCurrentSpeech]);
 
   const speak = useCallback(async (text: string) => {
-    await speakFromIndex(text, 0);
+    ttsLog('[useTTS] speak() called, textLen=' + text.length);
+    setIsLoading(true);
+    try {
+      await speakFromIndex(text, 0);
+    } catch (e) {
+      ttsError('[useTTS] speak() error: ' + (e instanceof Error ? e.message : String(e)));
+      throw e;
+    } finally {
+      setIsLoading(false);
+    }
   }, [speakFromIndex]);
 
   // FIX #4: Improved pause — set pausedRef BEFORE stopping to prevent error handler reset
@@ -596,7 +607,7 @@ export function useTTS() {
   }, [cancelCurrentSpeech]);
 
   return {
-    isSpeaking, isPaused, progress, voices, selectedVoice,
+    isSpeaking, isPaused, isLoading, progress, voices, selectedVoice,
     rate, setRate, pitch, setPitch, setSelectedVoice, speak, speakFromIndex, pause, resume, stop,
     activeCharIndex, setOnEnd, isNativeTTS: useNativeRef.current,
     debugInfo, runDiagnostics: runTTSDiagnostics, openInstall: openNativeTtsInstall,

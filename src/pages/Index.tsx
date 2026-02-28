@@ -900,10 +900,25 @@ const Index = () => {
               </Button>
 
               {!tts.isSpeaking ? (
-                <Button size="sm" onClick={() => { tts.speak(displayText); }} className="rounded-xl gap-2 px-4 sm:px-5 text-xs sm:text-sm">
-                  <Volume2 className="h-4 w-4" />
-                  <span className="hidden sm:inline">Ouvir Capítulo</span>
-                  <span className="sm:hidden">Ouvir</span>
+                <Button
+                  size="sm"
+                  disabled={tts.isLoading}
+                  onClick={async () => {
+                    toast.info("Iniciando leitura...", { duration: 2000 });
+                    try {
+                      await tts.speak(displayText);
+                    } catch (err: any) {
+                      toast.error("Erro ao iniciar leitura", {
+                        description: err?.message || "Erro desconhecido",
+                        duration: 6000,
+                      });
+                    }
+                  }}
+                  className="rounded-xl gap-2 px-4 sm:px-5 text-xs sm:text-sm"
+                >
+                  {tts.isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Volume2 className="h-4 w-4" />}
+                  <span className="hidden sm:inline">{tts.isLoading ? "Iniciando..." : "Ouvir Capítulo"}</span>
+                  <span className="sm:hidden">{tts.isLoading ? "..." : "Ouvir"}</span>
                 </Button>
               ) : (
                 <>
