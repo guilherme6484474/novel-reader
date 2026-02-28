@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -52,12 +53,45 @@ async function synthesizeElevenLabs(text: string): Promise<Uint8Array> {
   return new Uint8Array(await res.arrayBuffer());
 }
 
+// ─── Log usage to database ───
+async function logUsage(userId: string | null, charCount: number, engine: string, lang: string) {
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
+
+    await supabase.from("tts_usage").insert({
+      user_id: userId,
+      characters_count: charCount,
+      engine,
+      lang,
+    });
+  } catch (e) {
+    console.error("[cloud-tts] Failed to log usage:", e);
+    // Don't fail the request if logging fails
+  }
+}
+
+// ─── Extract user ID from JWT ───
+function extractUserId(req: Request): string | null {
+  const authHeader = req.headers.get("authorization");
+  if (!authHeader?.startsWith("Bearer ")) return null;
+  try {
+    const token = authHeader.replace("Bearer ", "");
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.sub || null;
+  } catch {
+    return null;
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    const userId = extractUserId(req);
     const { text, lang = 'pt-BR', rate = 1, pitch = 1, engine } = await req.json();
     if (!text || typeof text !== 'string') {
       return new Response(JSON.stringify({ error: 'Missing "text"' }), {
@@ -70,7 +104,6 @@ serve(async (req) => {
     let used = '';
     const errors: string[] = [];
 
-    // Try engines in priority order
     const engines = engine ? [engine] : ['google', 'elevenlabs'];
 
     for (const eng of engines) {
@@ -99,6 +132,9 @@ serve(async (req) => {
         status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    // Log usage asynchronously (don't block response)
+    logUsage(userId, trimmed.length, used, lang);
 
     return new Response(audio, {
       status: 200,

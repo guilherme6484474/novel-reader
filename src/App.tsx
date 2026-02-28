@@ -8,6 +8,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
+import TtsUsage from "./pages/TtsUsage";
 import NotFound from "./pages/NotFound";
 import { PWAUpdatePrompt } from "./components/PWAUpdatePrompt";
 
@@ -23,6 +24,7 @@ const App = () => (
           <BrowserRouter>
             <Routes>
               <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
+              <Route path="/tts-usage" element={<ProtectedRoute><TtsUsage /></ProtectedRoute>} />
               <Route path="/auth" element={<Auth />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
