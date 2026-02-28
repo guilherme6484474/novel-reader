@@ -109,11 +109,11 @@ export default function TtsUsage() {
 
   if (!isAdmin) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-background p-6">
-        <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
-        <h1 className="text-xl font-bold text-foreground mb-2">Acesso Restrito</h1>
-        <p className="text-muted-foreground text-center mb-4">Você não tem permissão para acessar esta página.</p>
-        <Button onClick={() => navigate('/')} variant="outline">
+      <div className="flex flex-col items-center justify-center min-h-screen bg-background p-4">
+        <AlertTriangle className="h-10 w-10 sm:h-12 sm:w-12 text-destructive mb-4" />
+        <h1 className="text-lg sm:text-xl font-bold text-foreground mb-2">Acesso Restrito</h1>
+        <p className="text-sm text-muted-foreground text-center mb-4">Você não tem permissão para acessar esta página.</p>
+        <Button onClick={() => navigate('/')} variant="outline" size="sm">
           <ArrowLeft className="h-4 w-4 mr-2" /> Voltar
         </Button>
       </div>
@@ -121,17 +121,17 @@ export default function TtsUsage() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-4 md:p-8 max-w-4xl mx-auto">
-      <div className="flex items-center gap-3 mb-6">
-        <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
+    <div className="min-h-screen bg-background p-3 sm:p-4 md:p-8 max-w-4xl mx-auto">
+      <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6">
+        <Button variant="ghost" size="sm" onClick={() => navigate('/')} className="h-8 w-8 p-0 shrink-0">
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <BarChart3 className="h-6 w-6 text-primary" />
-        <h1 className="text-2xl font-bold text-foreground">Consumo TTS</h1>
+        <BarChart3 className="h-5 w-5 sm:h-6 sm:w-6 text-primary shrink-0" />
+        <h1 className="text-lg sm:text-2xl font-bold text-foreground truncate">Consumo TTS</h1>
       </div>
 
       {/* Period selector */}
-      <div className="flex gap-2 mb-6">
+      <div className="flex gap-1.5 sm:gap-2 mb-4 sm:mb-6">
         {(['7d', '30d', 'all'] as const).map((p) => (
           <Button
             key={p}
@@ -145,32 +145,32 @@ export default function TtsUsage() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Caracteres</CardTitle>
+          <CardHeader className="pb-1 sm:pb-2 px-3 sm:px-6 pt-3 sm:pt-6">
+            <CardTitle className="text-xs sm:text-sm text-muted-foreground">Caracteres</CardTitle>
           </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold text-foreground">{totalChars.toLocaleString('pt-BR')}</p>
+          <CardContent className="px-3 sm:px-6 pb-3 sm:pb-6">
+            <p className="text-xl sm:text-2xl font-bold text-foreground">{totalChars.toLocaleString('pt-BR')}</p>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Requisições</CardTitle>
+          <CardHeader className="pb-1 sm:pb-2 px-3 sm:px-6 pt-3 sm:pt-6">
+            <CardTitle className="text-xs sm:text-sm text-muted-foreground">Requisições</CardTitle>
           </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold text-foreground">{totalRequests.toLocaleString('pt-BR')}</p>
+          <CardContent className="px-3 sm:px-6 pb-3 sm:pb-6">
+            <p className="text-xl sm:text-2xl font-bold text-foreground">{totalRequests.toLocaleString('pt-BR')}</p>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Custo estimado</CardTitle>
+          <CardHeader className="pb-1 sm:pb-2 px-3 sm:px-6 pt-3 sm:pt-6">
+            <CardTitle className="text-xs sm:text-sm text-muted-foreground">Custo estimado</CardTitle>
           </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold text-foreground">
+          <CardContent className="px-3 sm:px-6 pb-3 sm:pb-6">
+            <p className="text-xl sm:text-2xl font-bold text-foreground">
               ${estimatedCost.toFixed(4)}
             </p>
-            <p className="text-[10px] text-muted-foreground mt-1">Google TTS Standard: $4/1M chars</p>
+            <p className="text-[9px] sm:text-[10px] text-muted-foreground mt-1">Google TTS Standard: $4/1M chars</p>
           </CardContent>
         </Card>
       </div>
@@ -178,7 +178,7 @@ export default function TtsUsage() {
       {/* Daily breakdown */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Consumo diário</CardTitle>
+          <CardTitle className="text-sm sm:text-base">Consumo diário</CardTitle>
         </CardHeader>
         <CardContent>
           {dailySummaries.length === 0 ? (
@@ -186,20 +186,20 @@ export default function TtsUsage() {
           ) : (
             <div className="space-y-3">
               {dailySummaries.map((day) => (
-                <div key={day.date} className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border border-border/40">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{day.date}</p>
-                    <div className="flex gap-2 mt-1">
+                <div key={day.date} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 sm:p-3 rounded-lg bg-muted/50 border border-border/40">
+                  <div className="min-w-0">
+                    <p className="text-xs sm:text-sm font-medium text-foreground">{day.date}</p>
+                    <div className="flex flex-wrap gap-1 sm:gap-2 mt-1">
                       {Object.entries(day.byEngine).map(([eng, data]) => (
-                        <span key={eng} className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                        <span key={eng} className="text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded bg-primary/10 text-primary">
                           {eng}: {data.chars.toLocaleString('pt-BR')} chars ({data.requests} req)
                         </span>
                       ))}
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm font-bold text-foreground">{day.totalChars.toLocaleString('pt-BR')}</p>
-                    <p className="text-[10px] text-muted-foreground">${(day.totalChars * COST_PER_CHAR).toFixed(4)}</p>
+                  <div className="text-left sm:text-right shrink-0">
+                    <p className="text-xs sm:text-sm font-bold text-foreground">{day.totalChars.toLocaleString('pt-BR')}</p>
+                    <p className="text-[9px] sm:text-[10px] text-muted-foreground">${(day.totalChars * COST_PER_CHAR).toFixed(4)}</p>
                   </div>
                 </div>
               ))}
