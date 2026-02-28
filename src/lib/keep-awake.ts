@@ -2,8 +2,8 @@
  * Keep-awake utility — prevents the device from suspending during TTS playback.
  *
  * Native (Capacitor): Uses @capacitor-community/keep-awake plugin.
- * Web: Uses Screen Wake Lock API + silent audio loop to keep JS alive
- *      even when the screen is off or the tab is in background.
+ * Web: Uses Screen Wake Lock API + silent audio loop + Media Session API
+ *      to keep JS alive even when the screen is off or the tab is in background.
  */
 import { isNative } from '@/lib/native-tts';
 import { ttsLog, ttsWarn } from '@/lib/tts-debug-log';
@@ -112,6 +112,78 @@ function stopSilentAudio() {
   ttsLog('[KeepAwake] Silent audio loop stopped');
 }
 
+// ─── Web: Media Session API ───
+// Registers the app as a media player so the OS gives it priority
+// and shows lock-screen controls (pause/play).
+let mediaSessionActive = false;
+let mediaSessionPauseHandler: (() => void) | null = null;
+let mediaSessionPlayHandler: (() => void) | null = null;
+
+function startMediaSession() {
+  if (mediaSessionActive) return;
+  if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) {
+    ttsWarn('[KeepAwake] Media Session API not supported');
+    return;
+  }
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: 'Leitura em andamento',
+      artist: 'Novel Reader',
+      album: 'TTS',
+    });
+    navigator.mediaSession.playbackState = 'playing';
+    mediaSessionActive = true;
+    ttsLog('[KeepAwake] Media Session started');
+  } catch (e) {
+    ttsWarn('[KeepAwake] Media Session failed: ' + String(e));
+  }
+}
+
+function stopMediaSession() {
+  if (!mediaSessionActive) return;
+  try {
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'none';
+      navigator.mediaSession.metadata = null;
+      try { navigator.mediaSession.setActionHandler('play', null); } catch {}
+      try { navigator.mediaSession.setActionHandler('pause', null); } catch {}
+      try { navigator.mediaSession.setActionHandler('stop', null); } catch {}
+    }
+  } catch {}
+  mediaSessionActive = false;
+  mediaSessionPauseHandler = null;
+  mediaSessionPlayHandler = null;
+  ttsLog('[KeepAwake] Media Session stopped');
+}
+
+/**
+ * Register lock-screen media controls (optional).
+ * Call after acquireWakeLock to wire pause/play/stop buttons.
+ */
+export function setMediaSessionHandlers(handlers: {
+  onPause?: () => void;
+  onPlay?: () => void;
+  onStop?: () => void;
+}) {
+  if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+  try {
+    if (handlers.onPause) {
+      mediaSessionPauseHandler = handlers.onPause;
+      navigator.mediaSession.setActionHandler('pause', handlers.onPause);
+    }
+    if (handlers.onPlay) {
+      mediaSessionPlayHandler = handlers.onPlay;
+      navigator.mediaSession.setActionHandler('play', handlers.onPlay);
+    }
+    if (handlers.onStop) {
+      navigator.mediaSession.setActionHandler('stop', handlers.onStop);
+    }
+    ttsLog('[KeepAwake] Media Session handlers set');
+  } catch (e) {
+    ttsWarn('[KeepAwake] Media Session handlers failed: ' + String(e));
+  }
+}
+
 // ─── Public API ───
 
 /**
@@ -139,6 +211,7 @@ export async function acquireWakeLock(): Promise<void> {
   isKeptAwake = true;
   await acquireScreenWakeLock();
   startSilentAudio();
+  startMediaSession();
 }
 
 /**
@@ -165,4 +238,5 @@ export async function releaseWakeLock(): Promise<void> {
   isKeptAwake = false;
   await releaseScreenWakeLock();
   stopSilentAudio();
+  stopMediaSession();
 }
