@@ -174,7 +174,7 @@ export function TTSDiagnosticsPanel({ debugInfo, voiceCount, runDiagnostics, ope
 
       {/* In-app TTS log — visible on device without LogCat */}
       {showLog && (
-        <div className="p-2 rounded-lg bg-card border border-border/60 space-y-1 animate-fade-in max-h-64 overflow-y-auto">
+        <div className="p-2 rounded-lg bg-card border border-border/60 space-y-1 animate-fade-in max-h-[50vh] overflow-y-auto overscroll-contain -webkit-overflow-scrolling-touch">
           <div className="flex items-center justify-between sticky top-0 bg-card pb-1">
             <p className="text-[10px] font-semibold text-foreground">Log TTS ({logEntries.length})</p>
             <Button variant="ghost" size="sm" onClick={clearLog} className="h-5 px-1.5 text-[9px]">
