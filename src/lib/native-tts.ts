@@ -591,10 +591,20 @@ function tryWebSpeech(options: {
 }
 
 export async function nativeStop(): Promise<void> {
-  const plugin = await getPlugin();
-  if (plugin) {
-    try { await plugin.stop(); } catch { /* ignore */ }
+  // FIX #7: Add timeout to prevent nativeStop from hanging forever
+  const stopWithTimeout = async () => {
+    const plugin = await getPlugin();
+    if (plugin) {
+      try { await withTimeout(plugin.stop(), 2000, 'plugin.stop'); } catch { /* ignore */ }
+    }
+  };
+
+  try {
+    await withTimeout(stopWithTimeout(), 3000, 'nativeStop');
+  } catch {
+    ttsWarn('nativeStop timed out — forcing continue');
   }
+
   // Also stop Web Speech API in case fallback was used
   if (typeof speechSynthesis !== 'undefined') {
     try { speechSynthesis.cancel(); } catch { /* ignore */ }
