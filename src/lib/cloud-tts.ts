@@ -6,6 +6,7 @@
  * autoplay restrictions that block audio playback outside user gesture context.
  */
 import { ttsLog, ttsWarn } from '@/lib/tts-debug-log';
+import { supabase } from '@/integrations/supabase/client';
 
 const PROJECT_ID = import.meta.env.VITE_SUPABASE_PROJECT_ID;
 const ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -66,12 +67,24 @@ export async function cloudSpeak(options: CloudTTSOptions): Promise<{ engine: st
   // Stop any currently playing cloud audio
   cloudStop();
 
+  // Get auth token for usage tracking
+  let authToken: string | null = null;
+  try {
+    const { data } = await supabase.auth.getSession();
+    authToken = data.session?.access_token || null;
+  } catch { /* ignore */ }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'apikey': ANON_KEY,
+  };
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
+
   const response = await fetch(CLOUD_TTS_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': ANON_KEY,
-    },
+    headers,
     body: JSON.stringify({
       text: options.text,
       lang: options.lang || 'pt-BR',
