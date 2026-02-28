@@ -3,6 +3,7 @@ import { isNative, getNativeVoices, nativeSpeak, nativeStop, openNativeTtsInstal
 import { ttsLog, ttsError } from "@/lib/tts-debug-log";
 import { toast } from "sonner";
 import { acquireWakeLock, releaseWakeLock } from "@/lib/keep-awake";
+import { startForegroundService, stopForegroundService } from "@/lib/foreground-service";
 
 // Small chunks for Web Speech (needs frequent boundary events), large for Cloud TTS
 const MAX_CHUNK_WEB = 80;
@@ -310,6 +311,7 @@ export function useTTS() {
       setActiveCharIndex(-1);
       clearWordTimer();
       void releaseWakeLock();
+      void stopForegroundService();
       onEndCallbackRef.current?.();
       return;
     }
@@ -565,11 +567,13 @@ export function useTTS() {
     ttsLog('[useTTS] speak() called, textLen=' + text.length);
     setIsLoading(true);
     try {
+      await startForegroundService();
       await acquireWakeLock();
       await speakFromIndex(text, 0);
     } catch (e) {
       ttsError('[useTTS] speak() error: ' + (e instanceof Error ? e.message : String(e)));
       await releaseWakeLock();
+      await stopForegroundService();
       throw e;
     } finally {
       setIsLoading(false);
@@ -617,6 +621,7 @@ export function useTTS() {
   const stop = useCallback(async () => {
     await cancelCurrentSpeech(true);
     await releaseWakeLock();
+    await stopForegroundService();
   }, [cancelCurrentSpeech]);
 
   return {
