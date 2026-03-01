@@ -376,64 +376,64 @@ const Index = () => {
           {/* Top bar */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-xl bg-primary/10">
-                <BookOpen className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
+                <BookOpen className="h-5 w-5 text-primary" />
               </div>
               <h1 className="text-base sm:text-lg font-bold tracking-tight" style={{ fontFamily: 'var(--font-heading)' }}>
                 Novel Reader
               </h1>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-0.5 -mr-2">
               {pwa.canInstall && (
                 <Button
                   variant="ghost" size="icon"
                   onClick={pwa.install}
-                  className="h-8 w-8 rounded-lg text-primary hover:text-primary"
+                  className="h-10 w-10 rounded-lg text-primary hover:text-primary"
                   title="Instalar app"
                 >
-                  <Download className="h-4 w-4" />
+                  <Download className="h-5 w-5" />
                 </Button>
               )}
               {user && (
                 <Button
                   variant="ghost" size="icon"
                   onClick={() => setShowHistory(!showHistory)}
-                  className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+                  className="h-10 w-10 rounded-lg text-muted-foreground hover:text-foreground"
                 >
-                  <History className="h-4 w-4" />
+                  <History className="h-5 w-5" />
                 </Button>
               )}
               <Button
                 variant="ghost" size="icon"
                 onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+                className="h-10 w-10 rounded-lg text-muted-foreground hover:text-foreground"
               >
-                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
               </Button>
               <Button
                 variant="ghost" size="icon"
                 onClick={() => setShowSettings(!showSettings)}
-                className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+                className="h-10 w-10 rounded-lg text-muted-foreground hover:text-foreground"
               >
-                <Settings2 className="h-4 w-4" />
+                <Settings2 className="h-5 w-5" />
               </Button>
               {user ? (
                 <Button
                   variant="ghost" size="icon"
                   onClick={signOut}
-                  className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+                  className="h-10 w-10 rounded-lg text-muted-foreground hover:text-foreground"
                   title="Sair"
                 >
-                  <LogOut className="h-4 w-4" />
+                  <LogOut className="h-5 w-5" />
                 </Button>
               ) : (
                 <Button
                   variant="ghost" size="icon"
                   onClick={() => navigate("/auth")}
-                  className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+                  className="h-10 w-10 rounded-lg text-muted-foreground hover:text-foreground"
                   title="Entrar"
                 >
-                  <LogIn className="h-4 w-4" />
+                  <LogIn className="h-5 w-5" />
                 </Button>
               )}
             </div>
@@ -496,20 +496,20 @@ const Index = () => {
                   <span className="text-xs text-muted-foreground w-12">Fonte</span>
                   <Button
                     variant="outline" size="icon"
-                    className="h-7 w-7 rounded-lg"
+                    className="h-9 w-9 rounded-lg"
                     onClick={() => setFontSize(prev => Math.max(12, prev - 2))}
                     disabled={fontSize <= 12}
                   >
-                    <Minus className="h-3 w-3" />
+                    <Minus className="h-4 w-4" />
                   </Button>
                   <span className="text-xs font-medium text-foreground w-8 text-center">{fontSize}</span>
                   <Button
                     variant="outline" size="icon"
-                    className="h-7 w-7 rounded-lg"
+                    className="h-9 w-9 rounded-lg"
                     onClick={() => setFontSize(prev => Math.min(32, prev + 2))}
                     disabled={fontSize >= 32}
                   >
-                    <Plus className="h-3 w-3" />
+                    <Plus className="h-4 w-4" />
                   </Button>
                   <Slider
                     value={[fontSize]}
@@ -701,22 +701,22 @@ const Index = () => {
         <div className="mx-auto max-w-3xl px-4 sm:px-6 py-4 border-b border-border/60 bg-card/50">
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm font-semibold text-foreground">Histórico de Leitura</p>
-            <Button variant="ghost" size="icon" onClick={() => setShowHistory(false)} className="h-7 w-7">
-              <X className="h-3.5 w-3.5" />
+            <Button variant="ghost" size="icon" onClick={() => setShowHistory(false)} className="h-10 w-10">
+              <X className="h-4 w-4" />
             </Button>
           </div>
           {history.length === 0 ? (
             <p className="text-xs text-muted-foreground">Nenhum capítulo lido ainda.</p>
           ) : (
-            <div className="space-y-2 max-h-72 overflow-y-auto">
+            <div className="space-y-2 max-h-[60vh] overflow-y-auto overscroll-contain">
               {history.map((h) => (
                 <div
                   key={h.id}
-                  className="flex items-center gap-3 p-3 rounded-xl bg-background border border-border/40 hover:border-primary/30 transition-colors cursor-pointer group"
+                  className="flex items-center gap-3 p-3 rounded-xl bg-background border border-border/40 active:border-primary/30 transition-colors cursor-pointer group"
                   onClick={() => loadChapter(h.chapter_url)}
                 >
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                    <BookOpen className="h-4 w-4 text-primary" />
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                    <BookOpen className="h-5 w-5 text-primary" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-foreground truncate">{h.novel_title}</p>
@@ -734,10 +734,10 @@ const Index = () => {
                   </div>
                   <Button
                     variant="ghost" size="icon"
-                    className="h-7 w-7 opacity-0 group-hover:opacity-100 text-destructive shrink-0"
+                    className="h-10 w-10 opacity-100 text-destructive/60 active:text-destructive shrink-0"
                     onClick={(e) => { e.stopPropagation(); handleDeleteHistory(h.id); }}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
               ))}
@@ -903,16 +903,16 @@ const Index = () => {
         >
           <div className="mx-auto max-w-3xl">
             <Progress value={tts.progress} className="mb-2 h-1 rounded-full" />
-            <div className="flex items-center justify-center gap-2">
+            <div className="flex items-center justify-center gap-2 sm:gap-3">
               {/* Auto-read toggle */}
               <Button
                 size="sm"
                 variant={autoRead ? "default" : "outline"}
                 onClick={() => setAutoRead(!autoRead)}
-                className={`rounded-xl gap-1.5 px-3 text-xs ${autoRead ? '' : 'border-border/60'}`}
+                className={`rounded-xl gap-1.5 px-3 h-10 text-xs ${autoRead ? '' : 'border-border/60'}`}
                 title={autoRead ? "Leitura contínua ativada" : "Ativar leitura contínua"}
               >
-                <RefreshCw className={`h-3.5 w-3.5 ${autoRead ? 'animate-spin' : ''}`} style={autoRead ? { animationDuration: '3s' } : {}} />
+                <RefreshCw className={`h-4 w-4 ${autoRead ? 'animate-spin' : ''}`} style={autoRead ? { animationDuration: '3s' } : {}} />
                 <span className="hidden sm:inline">Auto</span>
               </Button>
 
@@ -921,8 +921,6 @@ const Index = () => {
                   size="sm"
                   disabled={tts.isLoading}
                   onClick={async () => {
-                    // FIX #8: Pre-init AudioContext from user gesture context
-                    // This unlocks audio playback on Android WebView
                     initCloudAudio();
                     toast.info("Iniciando leitura...", { duration: 2000 });
                     try {
@@ -934,7 +932,7 @@ const Index = () => {
                       });
                     }
                   }}
-                  className="rounded-xl gap-2 px-4 sm:px-5 text-xs sm:text-sm"
+                  className="rounded-xl gap-2 px-5 h-10 text-sm"
                 >
                   {tts.isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Volume2 className="h-4 w-4" />}
                   <span className="hidden sm:inline">{tts.isLoading ? "Iniciando..." : "Ouvir Capítulo"}</span>
@@ -945,16 +943,16 @@ const Index = () => {
                   <Button
                     size="icon" variant="outline"
                     onClick={tts.isPaused ? tts.resume : tts.pause}
-                    className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl border-border/60"
+                    className="h-10 w-10 rounded-xl border-border/60"
                   >
-                    {tts.isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                    {tts.isPaused ? <Play className="h-5 w-5" /> : <Pause className="h-5 w-5" />}
                   </Button>
                   <Button
                     size="icon" variant="ghost"
                     onClick={() => { tts.stop(); setAutoRead(false); }}
-                    className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl text-destructive hover:text-destructive"
+                    className="h-10 w-10 rounded-xl text-destructive hover:text-destructive"
                   >
-                    <Square className="h-4 w-4" />
+                    <Square className="h-5 w-5" />
                   </Button>
                   <span className="text-xs text-muted-foreground ml-1">{Math.round(tts.progress)}%</span>
                 </>
