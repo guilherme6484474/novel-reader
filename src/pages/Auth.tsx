@@ -103,7 +103,7 @@ const Auth = () => {
           {isLogin ? "Não tem conta?" : "Já tem conta?"}{" "}
           <button
             onClick={() => setIsLogin(!isLogin)}
-            className="text-primary font-medium hover:underline"
+            className="text-primary font-medium hover:underline py-2 px-1 active:opacity-70"
           >
             {isLogin ? "Criar conta" : "Entrar"}
           </button>

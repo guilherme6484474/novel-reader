@@ -144,30 +144,30 @@ export function TTSDiagnosticsPanel({ debugInfo, voiceCount, runDiagnostics, ope
       </div>
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="sm" onClick={() => setShowDiag(!showDiag)}
-          className="rounded-lg gap-1.5 text-xs border-border/60">
-          <Settings2 className="h-3 w-3" />
+          className="rounded-lg gap-1.5 text-xs border-border/60 h-10 px-3">
+          <Settings2 className="h-4 w-4" />
           {showDiag ? 'Ocultar' : 'Diagnóstico'}
         </Button>
         <Button variant="outline" size="sm" onClick={handleTestVoice}
-          className="rounded-lg gap-1.5 text-xs border-border/60">
-          <Volume2 className="h-3 w-3" />
+          className="rounded-lg gap-1.5 text-xs border-border/60 h-10 px-3">
+          <Volume2 className="h-4 w-4" />
           Testar voz
         </Button>
         <Button variant="outline" size="sm" onClick={handleOpenInstall}
-          className="rounded-lg gap-1.5 text-xs border-border/60">
-          <ExternalLink className="h-3 w-3" />
+          className="rounded-lg gap-1.5 text-xs border-border/60 h-10 px-3">
+          <ExternalLink className="h-4 w-4" />
           {native ? "Config. motor" : "Instalar TTS"}
         </Button>
         {native && (
           <Button variant="outline" size="sm" onClick={handleDownloadTts}
-            className="rounded-lg gap-1.5 text-xs border-border/60">
-            <Download className="h-3 w-3" />
+            className="rounded-lg gap-1.5 text-xs border-border/60 h-10 px-3">
+            <Download className="h-4 w-4" />
             Baixar TTS
           </Button>
         )}
         <Button variant="outline" size="sm" onClick={() => setShowLog(!showLog)}
-          className="rounded-lg gap-1.5 text-xs border-border/60">
-          <ScrollText className="h-3 w-3" />
+          className="rounded-lg gap-1.5 text-xs border-border/60 h-10 px-3">
+          <ScrollText className="h-4 w-4" />
           {showLog ? 'Ocultar log' : 'Ver log'}
         </Button>
       </div>
@@ -177,8 +177,8 @@ export function TTSDiagnosticsPanel({ debugInfo, voiceCount, runDiagnostics, ope
         <div className="p-2 rounded-lg bg-card border border-border/60 space-y-1 animate-fade-in max-h-[50vh] overflow-y-auto overscroll-contain -webkit-overflow-scrolling-touch">
           <div className="flex items-center justify-between sticky top-0 bg-card pb-1">
             <p className="text-[10px] font-semibold text-foreground">Log TTS ({logEntries.length})</p>
-            <Button variant="ghost" size="sm" onClick={clearLog} className="h-5 px-1.5 text-[9px]">
-              <Trash2 className="h-2.5 w-2.5 mr-1" /> Limpar
+            <Button variant="ghost" size="sm" onClick={clearLog} className="h-8 px-2 text-[10px]" data-compact>
+              <Trash2 className="h-3 w-3 mr-1" /> Limpar
             </Button>
           </div>
           {logEntries.length === 0 ? (
