@@ -101,6 +101,7 @@ let currentSource: AudioBufferSourceNode | null = null;
 
 // ─── HTML Audio state (for 'htmlaudio' mode) ───
 let currentAudioEl: HTMLAudioElement | null = null;
+let warmedAudioEl: HTMLAudioElement | null = null; // Pre-warmed during user gesture
 
 let isPlaying = false;
 
@@ -129,10 +130,25 @@ export interface CloudTTSOptions {
   onError?: (error: string) => void;
 }
 
+/**
+ * MUST be called synchronously from a user gesture (click/tap) to unlock
+ * audio playback on Android WebView / mobile browsers.
+ * Creates a "warm" audio element by playing a tiny silent clip.
+ */
 export function initCloudAudio(): void {
   try {
     if (playbackMode === 'audiocontext') {
       ensureAudioContext();
+    }
+    // Warm up an HTML Audio element during the user gesture to unlock playback.
+    // Android WebView blocks audio.play() if not initiated from a gesture context.
+    if (!warmedAudioEl) {
+      const SILENT_MP3 = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRBkFAAAAAAD/+1DEAAAHAAGf9AAAIMAAMO/4AAQAAAAANIAAAAADSA0gNIDSA0mf/6TQDSA0gNIDSA0gNJn/5MgNIDSA0gNIDSA0mf/lMgNIDSA0gNIDSBpMgNIDSA0gNIDSA0gNID/+xDELgPAAAGkAAAAIAAANIAAAAQSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIA=';
+      warmedAudioEl = new Audio(SILENT_MP3);
+      warmedAudioEl.volume = 0.01;
+      const p = warmedAudioEl.play();
+      if (p) p.catch(() => {}); // Ignore autoplay errors — the gesture unlocks it
+      ttsLog('[CloudTTS] Audio element warmed during user gesture');
     }
     ttsLog(`[CloudTTS] Audio pre-initialized (mode=${playbackMode})`);
   } catch (e) {
@@ -214,17 +230,29 @@ async function fetchTTSAudio(options: Omit<CloudTTSOptions, 'onEnd' | 'onError'>
 
 /**
  * Play audio using HTML <audio> element.
+ * Reuses the warmed audio element (created during user gesture) to avoid
+ * autoplay blocking on Android WebView.
  */
 function playWithHtmlAudio(arrayBuffer: ArrayBuffer, options: CloudTTSOptions): Promise<void> {
   return new Promise((resolve, reject) => {
     const blob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
     const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
+
+    // Reuse warmed element if available (avoids Android autoplay block)
+    let audio: HTMLAudioElement;
+    if (warmedAudioEl) {
+      audio = warmedAudioEl;
+      warmedAudioEl = null; // consumed — next call creates fresh
+      audio.pause();
+      audio.volume = 1;
+    } else {
+      audio = new Audio();
+    }
+    audio.src = url;
     currentAudioEl = audio;
     isPlaying = true;
 
     // Set playback rate on the audio element for faster playback
-    // Google TTS speakingRate handles most of it, but this adds extra control
     const extraSpeed = (options.rate && options.rate > 1.5) ? Math.min(options.rate / 1.5, 2.0) : 1.0;
     audio.playbackRate = extraSpeed;
 
@@ -318,6 +346,13 @@ export async function cloudSpeak(options: CloudTTSOptions): Promise<{ engine: st
 
   if (playbackMode === 'htmlaudio') {
     await playWithHtmlAudio(arrayBuffer, options);
+    // Pre-warm a new audio element for the next chunk (reuses gesture context chain)
+    if (!warmedAudioEl) {
+      try {
+        warmedAudioEl = new Audio();
+        warmedAudioEl.volume = 0.01;
+      } catch { /* ignore */ }
+    }
   } else {
     await playWithAudioContext(arrayBuffer, options);
   }
