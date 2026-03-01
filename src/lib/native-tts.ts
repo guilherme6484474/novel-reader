@@ -4,7 +4,7 @@
  */
 import { Capacitor } from '@capacitor/core';
 import { ttsLog, ttsWarn, ttsError } from '@/lib/tts-debug-log';
-import { cloudSpeak, cloudStop } from '@/lib/cloud-tts';
+import { cloudSpeak, cloudStop, getCloudVoice, preBufferChunk } from '@/lib/cloud-tts';
 
 let CapTTS: typeof import('@capacitor-community/text-to-speech').TextToSpeech | null = null;
 
@@ -381,21 +381,35 @@ export async function nativeSpeak(options: {
   rate?: number;
   pitch?: number;
   voiceURI?: string;
+  nextChunkText?: string; // text of next chunk for pre-buffering
 }): Promise<{ engine: string }> {
   ttsLog('nativeSpeak: textLen=' + options.text.length + ' lang=' + options.lang + ' rate=' + options.rate + ' voiceURI=' + options.voiceURI + ' isNative=' + isNative());
 
+  const cloudVoice = getCloudVoice();
+  const cloudOpts = {
+    text: options.text,
+    lang: options.lang || 'pt-BR',
+    rate: options.rate,
+    pitch: options.pitch,
+    voiceName: cloudVoice || undefined,
+  };
+
+  // Pre-buffer next chunk in background (fire-and-forget)
+  if (options.nextChunkText) {
+    preBufferChunk({
+      text: options.nextChunkText,
+      lang: options.lang || 'pt-BR',
+      rate: options.rate,
+      pitch: options.pitch,
+      voiceName: cloudVoice || undefined,
+    }).catch(() => {});
+  }
+
   // ─── ANDROID NATIVE: Skip ALL local engines, go directly to Cloud TTS ───
-  // WebView on Android does not support Web Speech API and the native plugin
-  // hangs/crashes on many devices (Samsung S23 FE confirmed).
   if (isNative()) {
-    ttsLog('Native platform detected — using Cloud TTS directly (bypassing local engines)');
+    ttsLog('Native platform detected — using Cloud TTS directly');
     try {
-      const cloudResult = await cloudSpeak({
-        text: options.text,
-        lang: options.lang || 'pt-BR',
-        rate: options.rate,
-        pitch: options.pitch,
-      });
+      const cloudResult = await cloudSpeak(cloudOpts);
       clearDiagError();
       ttsLog('Cloud TTS succeeded on native: ' + cloudResult.engine);
       return cloudResult;
@@ -417,12 +431,7 @@ export async function nativeSpeak(options: {
 
   ttsLog('Web Speech failed. Trying Cloud TTS...');
   try {
-    const cloudResult = await cloudSpeak({
-      text: options.text,
-      lang: options.lang || 'pt-BR',
-      rate: options.rate,
-      pitch: options.pitch,
-    });
+    const cloudResult = await cloudSpeak(cloudOpts);
     clearDiagError();
     ttsLog('Cloud TTS succeeded: ' + cloudResult.engine);
     return cloudResult;

@@ -329,6 +329,9 @@ export function useTTS() {
       const selectedV = voices.find(v => v.name === selectedVoiceRef.current);
       const isSystemDefault = !selectedV || selectedV.voiceURI.startsWith('__system_default');
 
+      // Get next chunk text for pre-buffering
+      const nextChunkText = chunkIndex + 1 < chunks.length ? chunks[chunkIndex + 1] : undefined;
+
       // Pass voiceURI to nativeSpeak so it can match by URI on the native side
       const result = await nativeSpeak({
         text: chunkText,
@@ -336,6 +339,7 @@ export function useTTS() {
         rate: rateRef.current,
         pitch: pitchRef.current,
         voiceURI: isSystemDefault ? undefined : selectedV?.voiceURI,
+        nextChunkText,
       });
 
       if (chunkIndex === 0) {

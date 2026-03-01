@@ -6,7 +6,7 @@ import {
 } from "@/components/ui/select";
 import { useTTS } from "@/hooks/use-tts";
 import { useIsAdmin } from "@/hooks/use-is-admin";
-import { initCloudAudio } from "@/lib/cloud-tts";
+import { initCloudAudio, CLOUD_VOICES, getAudioMode, setAudioMode, getCloudVoice, setCloudVoice, type AudioPlaybackMode } from '@/lib/cloud-tts';
 import { usePwaInstall } from "@/hooks/use-pwa-install";
 import { scrapeChapter, translateChapterStream, type ChapterData } from "@/lib/api/novel";
 import { getCachedTranslation, setCachedTranslation, clearTranslationCache } from "@/lib/translation-cache";
@@ -17,7 +17,7 @@ import {
   BookOpen, ChevronLeft, ChevronRight, Globe, Loader2,
   Pause, Play, Square, Volume2, Settings2, Search,
   Moon, Sun, LogIn, LogOut, History, X, Trash2, Minus, Plus, Type,
-  RefreshCw, Download, BarChart3,
+  RefreshCw, Download, BarChart3, Radio, Mic,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
@@ -137,6 +137,8 @@ const Index = () => {
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [autoRead, setAutoRead] = useState(() => localStorage.getItem('nr-autoRead') === 'true');
+  const [audioMode, setAudioModeState] = useState<AudioPlaybackMode>(getAudioMode);
+  const [cloudVoice, setCloudVoiceState] = useState(getCloudVoice);
   const autoReadRef = useRef(autoRead);
   const tts = useTTS();
   const { isAdmin } = useIsAdmin();
@@ -614,7 +616,7 @@ const Index = () => {
                   <Slider
                     value={[tts.rate]}
                     onValueChange={([v]) => tts.setRate(v)}
-                    min={0.5} max={2} step={0.1}
+                    min={0.5} max={3} step={0.1}
                     className="flex-1"
                   />
                   <span className="text-xs font-medium text-foreground w-8 sm:w-10 text-right">{tts.rate}x</span>
@@ -629,6 +631,89 @@ const Index = () => {
                   />
                   <span className="text-xs font-medium text-foreground w-8 sm:w-10 text-right">{tts.pitch}</span>
                 </div>
+
+                {/* Cloud Voice Selector */}
+                <div className="mt-3 pt-3 border-t border-border/40">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <Mic className="h-3 w-3" /> Voz na Nuvem (Google Cloud)
+                  </p>
+                  <Select
+                    value={cloudVoice || '__default__'}
+                    onValueChange={(v) => {
+                      const val = v === '__default__' ? '' : v;
+                      setCloudVoiceState(val);
+                      setCloudVoice(val);
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-xs rounded-lg bg-background">
+                      <SelectValue placeholder="Voz padrão" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60">
+                      <SelectItem value="__default__">🔊 Voz padrão (Feminina BR)</SelectItem>
+                      {(() => {
+                        const langGroups = new Map<string, typeof CLOUD_VOICES>();
+                        CLOUD_VOICES.forEach(v => {
+                          const base = v.lang.split('-').slice(0, 2).join('-');
+                          if (!langGroups.has(base)) langGroups.set(base, []);
+                          langGroups.get(base)!.push(v);
+                        });
+                        const langLabels: Record<string, string> = {
+                          'pt-BR': '🇧🇷 Português (BR)', 'pt-PT': '🇵🇹 Português (PT)',
+                          'en-US': '🇺🇸 English (US)', 'en-GB': '🇬🇧 English (UK)',
+                          'es-ES': '🇪🇸 Español (ES)', 'es-US': '🇪🇸 Español (US)',
+                          'fr-FR': '🇫🇷 Français', 'ja-JP': '🇯🇵 日本語',
+                          'ko-KR': '🇰🇷 한국어', 'cmn-CN': '🇨🇳 中文',
+                          'de-DE': '🇩🇪 Deutsch', 'it-IT': '🇮🇹 Italiano',
+                          'ru-RU': '🇷🇺 Русский', 'ar-XA': '🇸🇦 العربية',
+                          'hi-IN': '🇮🇳 हिन्दी',
+                        };
+                        return Array.from(langGroups.entries()).map(([lang, voices]) => (
+                          <div key={lang}>
+                            <div className="px-2 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-wider sticky top-0 bg-popover">
+                              {langLabels[lang] || lang}
+                            </div>
+                            {voices.map(v => (
+                              <SelectItem key={v.id} value={v.id}>
+                                {v.name} {v.id.includes('Wavenet') ? '✨' : ''} ({v.gender === 'FEMALE' ? '♀' : '♂'})
+                              </SelectItem>
+                            ))}
+                          </div>
+                        ));
+                      })()}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Audio API Toggle */}
+                <div className="mt-3 pt-3 border-t border-border/40">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <Radio className="h-3 w-3" /> Motor de Áudio
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant={audioMode === 'htmlaudio' ? 'default' : 'outline'}
+                      size="sm"
+                      className="flex-1 h-8 text-xs rounded-lg"
+                      onClick={() => { setAudioModeState('htmlaudio'); setAudioMode('htmlaudio'); }}
+                    >
+                      HTML Audio
+                    </Button>
+                    <Button
+                      variant={audioMode === 'audiocontext' ? 'default' : 'outline'}
+                      size="sm"
+                      className="flex-1 h-8 text-xs rounded-lg"
+                      onClick={() => { setAudioModeState('audiocontext'); setAudioMode('audiocontext'); }}
+                    >
+                      AudioContext
+                    </Button>
+                  </div>
+                  <p className="text-[9px] text-muted-foreground mt-1">
+                    {audioMode === 'htmlaudio'
+                      ? '✅ Recomendado para Android. Melhor compatibilidade.'
+                      : '⚠️ Pode travar no Android. Use se HTML Audio falhar.'}
+                  </p>
+                </div>
+
                 {/* TTS Diagnostics */}
                 <TTSDiagnosticsPanel
                   debugInfo={tts.debugInfo}
