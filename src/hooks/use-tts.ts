@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { isNative, getNativeVoices, nativeSpeak, nativeStop, openNativeTtsInstall, runTTSDiagnostics, setDiagError, type TTSDiagnostics } from "@/lib/native-tts";
 import { ttsLog, ttsError } from "@/lib/tts-debug-log";
 import { toast } from "sonner";
-import { acquireWakeLock, releaseWakeLock, setMediaSessionHandlers } from "@/lib/keep-awake";
+import { acquireWakeLock, releaseWakeLock, setMediaSessionHandlers, updateMediaSessionPlaybackState } from "@/lib/keep-awake";
 import { startForegroundService, stopForegroundService } from "@/lib/foreground-service";
 
 // Small chunks for Web Speech (needs frequent boundary events), large for Cloud TTS
@@ -111,6 +111,7 @@ export function useTTS() {
 
   const useNativeRef = useRef(isNative());
   const onEndCallbackRef = useRef<(() => void) | null>(null);
+  const onNextChapterRef = useRef<(() => void) | null>(null);
   const chunksRef = useRef<string[]>([]);
   const chunkOffsetsRef = useRef<number[]>([]);
   const currentChunkRef = useRef(0);
@@ -292,6 +293,10 @@ export function useTTS() {
 
   const setOnEnd = useCallback((cb: (() => void) | null) => {
     onEndCallbackRef.current = cb;
+  }, []);
+
+  const setOnNextChapter = useCallback((cb: (() => void) | null) => {
+    onNextChapterRef.current = cb;
   }, []);
 
   // ─── Native chunk speaker ───
@@ -572,6 +577,7 @@ export function useTTS() {
     pausedRef.current = true;
     setIsPaused(true);
     clearWordTimer();
+    updateMediaSessionPlaybackState('paused');
 
     if (useNativeRef.current) {
       void nativeStop();
@@ -586,6 +592,7 @@ export function useTTS() {
     pausedRef.current = false;
     speakingRef.current = true;
     setIsPaused(false);
+    updateMediaSessionPlaybackState('playing');
 
     if (useNativeRef.current) {
       // Native: restart from current chunk
@@ -618,6 +625,7 @@ export function useTTS() {
         onPause: () => pause(),
         onPlay: () => resume(),
         onStop: () => { void stop(); },
+        onNextTrack: () => { onNextChapterRef.current?.(); },
       });
       await speakFromIndex(text, 0);
     } catch (e) {
@@ -633,7 +641,7 @@ export function useTTS() {
   return {
     isSpeaking, isPaused, isLoading, progress, voices, selectedVoice,
     rate, setRate, pitch, setPitch, setSelectedVoice, speak, speakFromIndex, pause, resume, stop,
-    activeCharIndex, setOnEnd, isNativeTTS: useNativeRef.current,
+    activeCharIndex, setOnEnd, setOnNextChapter, isNativeTTS: useNativeRef.current,
     debugInfo, runDiagnostics: runTTSDiagnostics, openInstall: openNativeTtsInstall,
   };
 }
