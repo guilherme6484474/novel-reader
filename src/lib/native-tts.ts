@@ -494,7 +494,6 @@ function tryWebSpeech(options: {
         const voices = speechSynthesis.getVoices();
         ttsLog('WebSpeech doSpeak: ' + voices.length + ' voices available');
 
-        // FIX #5: If no real voices loaded, Web Speech can't produce audio — bail with log
         if (voices.length === 0) {
           ttsWarn('WebSpeech has 0 voices — cannot produce audio');
           resolve(null);
@@ -516,10 +515,16 @@ function tryWebSpeech(options: {
         }
 
         let settled = false;
+        let speechStarted = false;
         const settle = (result: { engine: string } | null) => {
           if (settled) return;
           settled = true;
           resolve(result);
+        };
+
+        utterance.onstart = () => {
+          speechStarted = true;
+          ttsLog('WebSpeech onstart fired — speech is playing');
         };
 
         utterance.onend = () => settle({ engine: `webSpeech(${match?.name || 'default'})` });
@@ -528,17 +533,19 @@ function tryWebSpeech(options: {
           if (e.error === 'canceled' || e.error === 'interrupted') {
             settle({ engine: 'webSpeech-canceled' });
           } else {
-            settle(null); // Let caller try next engine
+            settle(null);
           }
         };
 
-        // FIX #6: Reduced safety timeout to 3s for faster Cloud TTS fallback
+        // Safety timeout: only bail if speech never STARTED within 5s.
+        // Once started, we wait for onend (no timeout).
         setTimeout(() => {
-          if (!settled) {
-            ttsWarn('WebSpeech timeout, no onend/onerror fired');
+          if (!settled && !speechStarted) {
+            ttsWarn('WebSpeech timeout — speech never started after 5s');
+            try { speechSynthesis.cancel(); } catch {}
             settle(null);
           }
-        }, 3000);
+        }, 5000);
 
         speechSynthesis.speak(utterance);
         ttsLog('speechSynthesis.speak() called');
@@ -559,14 +566,13 @@ function tryWebSpeech(options: {
         speechSynthesis.onvoiceschanged = null;
         doSpeak();
       };
-      // FIX #6: Reduced wait from 1500ms to 500ms
       setTimeout(() => {
         if (!waited) {
           waited = true;
           speechSynthesis.onvoiceschanged = null;
           doSpeak();
         }
-      }, 500);
+      }, 800);
     } else {
       doSpeak();
     }
