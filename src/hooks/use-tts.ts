@@ -583,27 +583,23 @@ export function useTTS() {
 
   // FIX #4: Improved resume — properly restart with current generation
   const resume = useCallback(() => {
+    pausedRef.current = false;
+    speakingRef.current = true;
+    setIsPaused(false);
+
     if (useNativeRef.current) {
-      pausedRef.current = false;
-      speakingRef.current = true;
-      setIsPaused(false);
-      // Use current generation to resume
+      // Native: restart from current chunk
       speakChunk(currentChunkRef.current, generationRef.current);
       return;
     }
-    if (typeof speechSynthesis === 'undefined') return;
-    speechSynthesis.resume();
-    pausedRef.current = false;
-    setIsPaused(false);
-    if (!boundaryFiredRef.current && speakingRef.current) {
-      const chunk = chunksRef.current[currentChunkRef.current];
-      const offset = chunkOffsetsRef.current[currentChunkRef.current];
-      if (chunk) {
-        chunkStartTimeRef.current = performance.now();
-        startWordStepper(chunk, offset, rateRef.current);
-      }
+
+    // Web Speech API: Chrome's speechSynthesis.resume() silently fails after ~15s.
+    // Instead, cancel and restart from the current chunk for reliable resume.
+    if (typeof speechSynthesis !== 'undefined') {
+      speechSynthesis.cancel();
     }
-  }, [startWordStepper, speakChunk]);
+    speakChunk(currentChunkRef.current, generationRef.current);
+  }, [speakChunk]);
 
   const stop = useCallback(async () => {
     await cancelCurrentSpeech(true);
