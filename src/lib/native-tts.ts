@@ -6,6 +6,17 @@ import { Capacitor } from '@capacitor/core';
 import { ttsLog, ttsWarn, ttsError } from '@/lib/tts-debug-log';
 import { cloudSpeak, cloudStop, getCloudVoice, preBufferChunk } from '@/lib/cloud-tts';
 
+// ─── TTS Engine preference ───
+export type TTSEnginePreference = 'cloud' | 'webspeech';
+
+export function getTTSEngine(): TTSEnginePreference {
+  return (localStorage.getItem('nr-ttsEngine') as TTSEnginePreference) || 'cloud';
+}
+
+export function setTTSEngine(engine: TTSEnginePreference) {
+  localStorage.setItem('nr-ttsEngine', engine);
+}
+
 let CapTTS: typeof import('@capacitor-community/text-to-speech').TextToSpeech | null = null;
 
 // Lazy-load the plugin only in native context
@@ -420,15 +431,23 @@ export async function nativeSpeak(options: {
     }
   }
 
-  // ─── WEB BROWSER: Use Cloud TTS directly (HTML Audio) ───
-  // Cloud TTS uses HTML <audio> element which continues playing when:
-  // - Screen is turned off
-  // - App goes to background
-  // - Tab loses focus
-  // Web Speech API (speechSynthesis) gets suspended by the OS in these cases.
-  // HTML Audio also properly triggers Media Session API for lock-screen
-  // controls and headphone button support.
-  ttsLog('Browser detected — using Cloud TTS directly for background playback support');
+  // ─── WEB BROWSER: Check engine preference ───
+  const enginePref = getTTSEngine();
+
+  if (enginePref === 'webspeech') {
+    // User chose WebSpeech (offline, free, but stops in background)
+    ttsLog('Browser: WebSpeech mode selected by user');
+    const webResult = await tryWebSpeech(options);
+    if (webResult) {
+      clearDiagError();
+      return webResult;
+    }
+    // Fallback to Cloud if WebSpeech fails
+    ttsLog('WebSpeech failed, falling back to Cloud TTS...');
+  }
+
+  // Cloud TTS (default) — HTML Audio keeps playing in background
+  ttsLog('Browser: Using Cloud TTS (HTML Audio) for background playback support');
   try {
     const cloudResult = await cloudSpeak(cloudOpts);
     clearDiagError();
@@ -438,13 +457,14 @@ export async function nativeSpeak(options: {
     const cloudMsg = cloudErr instanceof Error ? cloudErr.message : String(cloudErr);
     ttsWarn('Cloud TTS failed on browser: ' + cloudMsg);
     
-    // Fallback to Web Speech API only if Cloud TTS fails (e.g. no internet)
-    ttsLog('Falling back to Web Speech API...');
-    const webResult = await tryWebSpeech(options);
-    if (webResult) {
-      clearDiagError();
-      ttsLog('Web Speech fallback succeeded: ' + webResult.engine);
-      return webResult;
+    // If Cloud was the preference, fallback to WebSpeech
+    if (enginePref === 'cloud') {
+      ttsLog('Falling back to Web Speech API...');
+      const webResult = await tryWebSpeech(options);
+      if (webResult) {
+        clearDiagError();
+        return webResult;
+      }
     }
   }
 

@@ -7,6 +7,7 @@ import {
 import { useTTS } from "@/hooks/use-tts";
 import { useIsAdmin } from "@/hooks/use-is-admin";
 import { initCloudAudio, CLOUD_VOICES, getAudioMode, setAudioMode, getCloudVoice, setCloudVoice, type AudioPlaybackMode } from '@/lib/cloud-tts';
+import { getTTSEngine, setTTSEngine, type TTSEnginePreference } from '@/lib/native-tts';
 import { usePwaInstall } from "@/hooks/use-pwa-install";
 import { scrapeChapter, translateChapterStream, type ChapterData } from "@/lib/api/novel";
 import { getCachedTranslation, setCachedTranslation, clearTranslationCache } from "@/lib/translation-cache";
@@ -145,6 +146,7 @@ const Index = () => {
   const [autoRead, setAutoRead] = useState(() => localStorage.getItem('nr-autoRead') === 'true');
   const [audioMode, setAudioModeState] = useState<AudioPlaybackMode>(getAudioMode);
   const [cloudVoice, setCloudVoiceState] = useState(getCloudVoice);
+  const [ttsEngine, setTtsEngineState] = useState<TTSEnginePreference>(getTTSEngine);
   const autoReadRef = useRef(autoRead);
   const tts = useTTS();
   const { isAdmin } = useIsAdmin();
@@ -743,7 +745,38 @@ const Index = () => {
                 {/* Audio API Toggle */}
                 <div className="mt-3 pt-3 border-t border-border/40">
                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Radio className="h-3 w-3" /> Motor de Áudio
+                    <Mic className="h-3 w-3" /> Motor de Voz
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant={ttsEngine === 'cloud' ? 'default' : 'outline'}
+                      size="sm"
+                      className="flex-1 h-8 text-xs rounded-lg"
+                      onClick={() => { setTtsEngineState('cloud'); setTTSEngine('cloud'); }}
+                    >
+                      ☁️ Cloud TTS
+                    </Button>
+                    <Button
+                      variant={ttsEngine === 'webspeech' ? 'default' : 'outline'}
+                      size="sm"
+                      className="flex-1 h-8 text-xs rounded-lg"
+                      onClick={() => { setTtsEngineState('webspeech'); setTTSEngine('webspeech'); }}
+                    >
+                      📱 Web Speech
+                    </Button>
+                  </div>
+                  <p className="text-[9px] text-muted-foreground mt-1">
+                    {ttsEngine === 'cloud'
+                      ? '☁️ Vozes HD na nuvem. Funciona em background com tela desligada. Requer internet.'
+                      : '📱 Vozes locais do dispositivo. Offline e gratuito. Para ao desligar tela/sair do app.'}
+                  </p>
+                </div>
+
+                {/* Audio API Toggle (only relevant for Cloud TTS) */}
+                {ttsEngine === 'cloud' && (
+                <div className="mt-3 pt-3 border-t border-border/40">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <Radio className="h-3 w-3" /> Modo de Áudio Cloud
                   </p>
                   <div className="flex gap-2">
                     <Button
@@ -765,10 +798,11 @@ const Index = () => {
                   </div>
                   <p className="text-[9px] text-muted-foreground mt-1">
                     {audioMode === 'htmlaudio'
-                      ? '✅ Recomendado para Android. Melhor compatibilidade.'
-                      : '⚠️ Pode travar no Android. Use se HTML Audio falhar.'}
+                      ? '✅ Recomendado. Melhor compatibilidade e suporte a background.'
+                      : '⚠️ Baixa latência, mas pode não funcionar em background.'}
                   </p>
                 </div>
+                )}
 
                 {/* TTS Diagnostics */}
                 <TTSDiagnosticsPanel
