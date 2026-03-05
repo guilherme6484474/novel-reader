@@ -32,6 +32,7 @@ export async function translateChapterStream(
   targetLanguage: string,
   onDelta: (chunk: string) => void,
   signal?: AbortSignal,
+  onReset?: () => void,
 ): Promise<void> {
   const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/translate-chapter`;
   const resp = await fetch(url, {
@@ -70,6 +71,10 @@ export async function translateChapterStream(
       try {
         const parsed = JSON.parse(jsonStr);
         if (parsed.error) throw new Error(parsed.error);
+        // When Google fallback activates, clear any partial AI text
+        if (parsed.fallback === "google" && onReset) {
+          onReset();
+        }
         if (parsed.text) onDelta(parsed.text);
       } catch (e) {
         if (e instanceof Error && e.message.startsWith("Translation")) throw e;

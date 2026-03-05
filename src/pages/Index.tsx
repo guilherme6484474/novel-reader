@@ -125,10 +125,15 @@ const ChapterArticle = memo(function ChapterArticle({
 });
 
 const Index = () => {
-  const [url, setUrl] = useState("");
+  const [url, setUrl] = useState(() => sessionStorage.getItem('nr-currentUrl') || "");
   const [language, setLanguage] = useState(() => localStorage.getItem('nr-language') || "Portuguese (Brazilian)");
-  const [chapter, setChapter] = useState<ChapterData | null>(null);
-  const [displayText, setDisplayText] = useState("");
+  const [chapter, setChapter] = useState<ChapterData | null>(() => {
+    try {
+      const saved = sessionStorage.getItem('nr-currentChapter');
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  });
+  const [displayText, setDisplayText] = useState(() => sessionStorage.getItem('nr-displayText') || "");
   const [isLoading, setIsLoading] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [translationProgress, setTranslationProgress] = useState(0);
@@ -161,6 +166,34 @@ const Index = () => {
   useEffect(() => { localStorage.setItem('nr-ttsPitch', String(tts.pitch)); }, [tts.pitch]);
   useEffect(() => { localStorage.setItem('nr-ttsVoice', tts.selectedVoice); }, [tts.selectedVoice]);
   useEffect(() => { localStorage.setItem('nr-autoRead', String(autoRead)); }, [autoRead]);
+
+  // Persist reading state to sessionStorage
+  useEffect(() => { if (url) sessionStorage.setItem('nr-currentUrl', url); }, [url]);
+  useEffect(() => {
+    if (chapter) sessionStorage.setItem('nr-currentChapter', JSON.stringify(chapter));
+  }, [chapter]);
+  useEffect(() => {
+    if (displayText) sessionStorage.setItem('nr-displayText', displayText);
+  }, [displayText]);
+
+  // Restore scroll position on mount
+  useEffect(() => {
+    const savedScroll = sessionStorage.getItem('nr-scrollPos');
+    if (savedScroll && chapter && displayText) {
+      setTimeout(() => window.scrollTo(0, Number(savedScroll)), 100);
+    }
+  }, []); // only on mount
+
+  // Save scroll position periodically
+  useEffect(() => {
+    const saveScroll = () => sessionStorage.setItem('nr-scrollPos', String(window.scrollY));
+    window.addEventListener('scroll', saveScroll, { passive: true });
+    document.addEventListener('visibilitychange', saveScroll);
+    return () => {
+      window.removeEventListener('scroll', saveScroll);
+      document.removeEventListener('visibilitychange', saveScroll);
+    };
+  }, []);
 
   // Load TTS preferences on mount
   useEffect(() => {
@@ -263,7 +296,13 @@ const Index = () => {
       translateChapterStream(data.content, language, (delta) => {
         streamedText += delta;
         if (!needsFlush) { needsFlush = true; rafId = requestAnimationFrame(flushText); }
-      }, controller.signal)
+      }, controller.signal, () => {
+        // Reset callback: AI failed mid-stream, Google will retranslate everything
+        streamedText = "";
+        cancelAnimationFrame(rafId);
+        setDisplayText("");
+        setTranslationProgress(0);
+      })
         .then(() => {
           cancelAnimationFrame(rafId);
           setDisplayText(streamedText);
@@ -343,7 +382,11 @@ const Index = () => {
       await translateChapterStream(chapter.content, language, (delta) => {
         streamedText += delta;
         if (!needsFlush) { needsFlush = true; rafId = requestAnimationFrame(flushText); }
-      }, controller.signal);
+      }, controller.signal, () => {
+        streamedText = "";
+        cancelAnimationFrame(rafId);
+        setDisplayText("");
+      });
       cancelAnimationFrame(rafId);
       setDisplayText(streamedText);
       // Update cache with new translation
