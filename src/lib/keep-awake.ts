@@ -83,7 +83,7 @@ function startSilentAudio() {
   try {
     silentAudioEl = new Audio(SILENT_MP3);
     silentAudioEl.loop = true;
-    silentAudioEl.volume = 0.01; // Near-silent but enough to keep process alive
+    silentAudioEl.volume = 0.05; // Low but enough to keep process alive on mobile
     // Play returns a promise — catch autoplay errors
     const playPromise = silentAudioEl.play();
     if (playPromise) {
