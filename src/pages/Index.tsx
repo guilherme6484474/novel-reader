@@ -11,6 +11,7 @@ import { usePwaInstall } from "@/hooks/use-pwa-install";
 import { scrapeChapter, translateChapterStream, type ChapterData } from "@/lib/api/novel";
 import { getCachedTranslation, setCachedTranslation, clearTranslationCache } from "@/lib/translation-cache";
 import { saveReadingProgress, getReadingHistory, deleteReadingEntry } from "@/lib/api/reading-history";
+import { updateMediaSessionMetadata } from "@/lib/keep-awake";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import {
@@ -261,6 +262,8 @@ const Index = () => {
       setUrl(chapterUrl);
       setDisplayText(data.content);
       setIsLoading(false);
+      // Update lock screen notification with chapter title
+      updateMediaSessionMetadata(data.title, 'Novel Reader');
 
       // Save progress
       if (user) {
@@ -1060,6 +1063,10 @@ const Index = () => {
                   disabled={tts.isLoading}
                   onClick={async () => {
                     initCloudAudio();
+                    // Set chapter info in lock screen notification
+                    if (chapter) {
+                      updateMediaSessionMetadata(chapter.title, 'Novel Reader');
+                    }
                     toast.info("Iniciando leitura...", { duration: 2000 });
                     try {
                       await tts.speak(displayText);
