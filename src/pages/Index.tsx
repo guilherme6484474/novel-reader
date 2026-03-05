@@ -690,7 +690,8 @@ const Index = () => {
                   <span className="text-xs font-medium text-foreground w-8 sm:w-10 text-right">{tts.pitch}</span>
                 </div>
 
-                {/* Cloud Voice Selector */}
+                {/* Cloud Voice Selector — only when Cloud TTS engine is selected */}
+                {ttsEngine === 'cloud' && (
                 <div className="mt-3 pt-3 border-t border-border/40">
                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
                     <Mic className="h-3 w-3" /> Voz na Nuvem (Google Cloud)
@@ -741,6 +742,7 @@ const Index = () => {
                     </SelectContent>
                   </Select>
                 </div>
+                )}
 
                 {/* Audio API Toggle */}
                 <div className="mt-3 pt-3 border-t border-border/40">
