@@ -420,24 +420,32 @@ export async function nativeSpeak(options: {
     }
   }
 
-  // ─── WEB BROWSER: Try Web Speech API first, then Cloud TTS fallback ───
-  ttsLog('Browser detected — trying Web Speech API...');
-  const webResult = await tryWebSpeech(options);
-  if (webResult) {
-    clearDiagError();
-    ttsLog('Web Speech succeeded: ' + webResult.engine);
-    return webResult;
-  }
-
-  ttsLog('Web Speech failed. Trying Cloud TTS...');
+  // ─── WEB BROWSER: Use Cloud TTS directly (HTML Audio) ───
+  // Cloud TTS uses HTML <audio> element which continues playing when:
+  // - Screen is turned off
+  // - App goes to background
+  // - Tab loses focus
+  // Web Speech API (speechSynthesis) gets suspended by the OS in these cases.
+  // HTML Audio also properly triggers Media Session API for lock-screen
+  // controls and headphone button support.
+  ttsLog('Browser detected — using Cloud TTS directly for background playback support');
   try {
     const cloudResult = await cloudSpeak(cloudOpts);
     clearDiagError();
-    ttsLog('Cloud TTS succeeded: ' + cloudResult.engine);
+    ttsLog('Cloud TTS succeeded on browser: ' + cloudResult.engine);
     return cloudResult;
   } catch (cloudErr) {
     const cloudMsg = cloudErr instanceof Error ? cloudErr.message : String(cloudErr);
-    ttsWarn('Cloud TTS also failed: ' + cloudMsg);
+    ttsWarn('Cloud TTS failed on browser: ' + cloudMsg);
+    
+    // Fallback to Web Speech API only if Cloud TTS fails (e.g. no internet)
+    ttsLog('Falling back to Web Speech API...');
+    const webResult = await tryWebSpeech(options);
+    if (webResult) {
+      clearDiagError();
+      ttsLog('Web Speech fallback succeeded: ' + webResult.engine);
+      return webResult;
+    }
   }
 
   throw new Error('Nenhum motor de voz produziu áudio. Verifique sua conexão de internet.');
