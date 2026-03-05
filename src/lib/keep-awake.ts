@@ -115,10 +115,9 @@ function stopSilentAudio() {
 
 // ─── Web: Media Session API ───
 // Registers the app as a media player so the OS gives it priority
-// and shows lock-screen controls (pause/play).
+// and shows lock-screen controls (pause/play/next).
+// Headphone buttons: single press = play/pause, double press = next track
 let mediaSessionActive = false;
-let mediaSessionPauseHandler: (() => void) | null = null;
-let mediaSessionPlayHandler: (() => void) | null = null;
 
 function startMediaSession() {
   if (mediaSessionActive) return;
@@ -146,40 +145,71 @@ function stopMediaSession() {
     if ('mediaSession' in navigator) {
       navigator.mediaSession.playbackState = 'none';
       navigator.mediaSession.metadata = null;
-      try { navigator.mediaSession.setActionHandler('play', null); } catch {}
-      try { navigator.mediaSession.setActionHandler('pause', null); } catch {}
-      try { navigator.mediaSession.setActionHandler('stop', null); } catch {}
+      const actions = ['play', 'pause', 'stop', 'nexttrack', 'previoustrack'] as const;
+      for (const action of actions) {
+        try { navigator.mediaSession.setActionHandler(action, null); } catch {}
+      }
     }
   } catch {}
   mediaSessionActive = false;
-  mediaSessionPauseHandler = null;
-  mediaSessionPlayHandler = null;
   ttsLog('[KeepAwake] Media Session stopped');
 }
 
 /**
- * Register lock-screen media controls (optional).
- * Call after acquireWakeLock to wire pause/play/stop buttons.
+ * Update Media Session metadata (e.g. chapter title).
+ */
+export function updateMediaSessionMetadata(title?: string, artist?: string) {
+  if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: title || 'Leitura em andamento',
+      artist: artist || 'Novel Reader',
+      album: 'TTS',
+    });
+  } catch {}
+}
+
+/**
+ * Update Media Session playback state.
+ */
+export function updateMediaSessionPlaybackState(state: 'playing' | 'paused' | 'none') {
+  if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.playbackState = state;
+  } catch {}
+}
+
+/**
+ * Register lock-screen media controls and headphone button handlers.
+ * - play/pause: single headphone button press
+ * - nexttrack: double headphone button press → next chapter
+ * - previoustrack: triple press (some headphones)
  */
 export function setMediaSessionHandlers(handlers: {
   onPause?: () => void;
   onPlay?: () => void;
   onStop?: () => void;
+  onNextTrack?: () => void;
+  onPrevTrack?: () => void;
 }) {
   if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
   try {
     if (handlers.onPause) {
-      mediaSessionPauseHandler = handlers.onPause;
       navigator.mediaSession.setActionHandler('pause', handlers.onPause);
     }
     if (handlers.onPlay) {
-      mediaSessionPlayHandler = handlers.onPlay;
       navigator.mediaSession.setActionHandler('play', handlers.onPlay);
     }
     if (handlers.onStop) {
       navigator.mediaSession.setActionHandler('stop', handlers.onStop);
     }
-    ttsLog('[KeepAwake] Media Session handlers set');
+    if (handlers.onNextTrack) {
+      navigator.mediaSession.setActionHandler('nexttrack', handlers.onNextTrack);
+    }
+    if (handlers.onPrevTrack) {
+      navigator.mediaSession.setActionHandler('previoustrack', handlers.onPrevTrack);
+    }
+    ttsLog('[KeepAwake] Media Session handlers set (incl. next/prev track)');
   } catch (e) {
     ttsWarn('[KeepAwake] Media Session handlers failed: ' + String(e));
   }

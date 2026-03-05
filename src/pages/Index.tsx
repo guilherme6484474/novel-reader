@@ -216,6 +216,16 @@ const Index = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tts.setOnEnd]);
 
+  // Wire headphone double-click → next chapter
+  useEffect(() => {
+    tts.setOnNextChapter(() => {
+      if (chapterRef.current?.nextChapterUrl) {
+        loadChapter(chapterRef.current.nextChapterUrl);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tts.setOnNextChapter]);
+
   useEffect(() => {
     if (user) {
       getReadingHistory(user.id).then(setHistory);
