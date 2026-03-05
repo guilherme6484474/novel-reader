@@ -511,18 +511,14 @@ export function useTTS() {
     speakingRef.current = false;
     pausedRef.current = false;
 
-    if (useNativeRef.current) {
-      try {
-        await nativeStop();
-      } catch {
-        // ignore
-      }
-    } else if (typeof speechSynthesis !== 'undefined') {
-      speechSynthesis.cancel();
+    // nativeStop handles all engines: Capacitor plugin, Cloud TTS, and WebSpeech
+    try {
+      await nativeStop();
+    } catch {
+      // ignore
     }
 
     clearWordTimer();
-    // No more cancelingRef needed — generation handles it
     chunksRef.current = [];
     chunkOffsetsRef.current = [];
 
@@ -570,19 +566,14 @@ export function useTTS() {
     speakChunk(0, gen);
   }, [speakChunk, cancelCurrentSpeech]);
 
-  // FIX #4: Improved pause — set pausedRef BEFORE stopping to prevent error handler reset
+  // FIX #4: Improved pause — stop via nativeStop which handles both Cloud and WebSpeech
   const pause = useCallback(() => {
     pausedRef.current = true;
     setIsPaused(true);
     clearWordTimer();
     updateMediaSessionPlaybackState('paused');
-
-    if (useNativeRef.current) {
-      void nativeStop();
-      return;
-    }
-    if (typeof speechSynthesis === 'undefined') return;
-    speechSynthesis.pause();
+    // nativeStop handles both Cloud TTS (cloudStop) and WebSpeech (speechSynthesis.cancel)
+    void nativeStop();
   }, [clearWordTimer]);
 
   // FIX #4: Improved resume — properly restart with current generation
@@ -591,18 +582,9 @@ export function useTTS() {
     speakingRef.current = true;
     setIsPaused(false);
     updateMediaSessionPlaybackState('playing');
-
-    if (useNativeRef.current) {
-      // Native: restart from current chunk
-      speakChunk(currentChunkRef.current, generationRef.current);
-      return;
-    }
-
-    // Web Speech API: Chrome's speechSynthesis.resume() silently fails after ~15s.
-    // Instead, cancel and restart from the current chunk for reliable resume.
-    if (typeof speechSynthesis !== 'undefined') {
-      speechSynthesis.cancel();
-    }
+    // Restart from current chunk — nativeStop (called during pause) already
+    // stopped any active audio. speakChunkNative → nativeSpeak → cloudSpeak
+    // will create a new HTML Audio element for the next chunk.
     speakChunk(currentChunkRef.current, generationRef.current);
   }, [speakChunk]);
 
