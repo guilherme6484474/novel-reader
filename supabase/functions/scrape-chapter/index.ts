@@ -57,6 +57,11 @@ function extractContent(html: string, hostname: string): string {
       /class="[^"]*text-left[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
       /class="[^"]*reading-content[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
     ],
+    'wtr-lab.com': [
+      /class="[^"]*chapter-body[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>\s*<div[^>]*class="[^"]*d-flex/i,
+      /class="[^"]*chapter-body[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+      /class="[^"]*chapter-wrap[^"]*card-body[^"]*"[^>]*>[\s\S]*?<div[^>]*class="[^"]*chapter-body[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+    ],
   };
 
   // Try site-specific selectors
@@ -174,9 +179,17 @@ function extractNavLinks(html: string, hostname: string): { next: string; prev: 
         /class="[^"]*btn-prev[^"]*"[^>]*href="([^"]*)"/i,
       ],
     },
+    'wtr-lab.com': {
+      next: [
+        /href="([^"]*\/chapter-\d+[^"]*)"[^>]*>\s*(?:[\s\S]*?)Next/i,
+        /class="[^"]*next[^"]*"[^>]*href="([^"]*)"/i,
+      ],
+      prev: [
+        /href="([^"]*\/chapter-\d+[^"]*)"[^>]*>\s*(?:[\s\S]*?)Prev/i,
+        /class="[^"]*prev[^"]*"[^>]*href="([^"]*)"/i,
+      ],
+    },
   };
-
-  // Try site-specific patterns first
   for (const [site, patterns] of Object.entries(siteNavPatterns)) {
     if (hostname.includes(site)) {
       for (const p of patterns.next) {
@@ -296,6 +309,20 @@ serve(async (req) => {
     const nav = extractNavLinks(html, hostname);
     let nextChapterUrl = nav.next;
     let prevChapterUrl = nav.prev;
+
+    // wtr-lab.com: URL-based chapter navigation fallback (buttons are JS-driven)
+    if (hostname.includes('wtr-lab.com')) {
+      const chapterMatch = url.match(/\/chapter-(\d+)/);
+      if (chapterMatch) {
+        const chNum = parseInt(chapterMatch[1], 10);
+        if (!nextChapterUrl) {
+          nextChapterUrl = url.replace(/\/chapter-\d+/, `/chapter-${chNum + 1}`);
+        }
+        if (!prevChapterUrl && chNum > 1) {
+          prevChapterUrl = url.replace(/\/chapter-\d+/, `/chapter-${chNum - 1}`);
+        }
+      }
+    }
 
     // Resolve relative URLs
     const origin = parsedUrl.origin;
