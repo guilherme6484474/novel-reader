@@ -5,6 +5,45 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
 
+function extractTextFromNextData(obj: unknown, depth = 0): string {
+  if (depth > 15 || !obj) return '';
+  if (typeof obj === 'string') {
+    // Look for strings that seem like chapter content (long text with sentences)
+    const cleaned = cleanHtml(obj);
+    if (cleaned.length > 200) return cleaned;
+    return '';
+  }
+  if (Array.isArray(obj)) {
+    // Collect all long text strings from array
+    const parts: string[] = [];
+    for (const item of obj) {
+      const text = extractTextFromNextData(item, depth + 1);
+      if (text) parts.push(text);
+    }
+    if (parts.length > 0) return parts.join('\n\n');
+    return '';
+  }
+  if (typeof obj === 'object' && obj !== null) {
+    // Prioritize keys likely to contain chapter text
+    const priorityKeys = ['content', 'text', 'body', 'chapter', 'chapterContent', 'rawText', 'paragraphs', 'data', 'result', 'translatedText', 'original'];
+    const record = obj as Record<string, unknown>;
+    for (const key of priorityKeys) {
+      if (key in record) {
+        const text = extractTextFromNextData(record[key], depth + 1);
+        if (text && text.length > 200) return text;
+      }
+    }
+    // Search all keys
+    let longest = '';
+    for (const val of Object.values(record)) {
+      const text = extractTextFromNextData(val, depth + 1);
+      if (text.length > longest.length) longest = text;
+    }
+    return longest;
+  }
+  return '';
+}
+
 function extractContent(html: string, hostname: string): string {
   // Site-specific selectors first, then generic fallbacks
   const siteSelectors: Record<string, RegExp[]> = {
@@ -96,6 +135,18 @@ function extractContent(html: string, hostname: string): string {
     if (m && m[1]) {
       const cleaned = cleanHtml(m[1]);
       if (cleaned.length > 100) return cleaned;
+    }
+  }
+
+  // Fallback: Next.js __NEXT_DATA__ JSON extraction
+  const nextDataMatch = html.match(/<script\s+id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i);
+  if (nextDataMatch) {
+    try {
+      const nextData = JSON.parse(nextDataMatch[1]);
+      const textContent = extractTextFromNextData(nextData);
+      if (textContent && textContent.length > 100) return textContent;
+    } catch (e) {
+      console.log('Failed to parse __NEXT_DATA__:', e);
     }
   }
 
@@ -237,6 +288,17 @@ function extractNavLinks(html: string, hostname: string): { next: string; prev: 
   return { next, prev };
 }
 
+async function handleWtrLab(url: string, parsedUrl: URL): Promise<Response> {
+  return new Response(
+    JSON.stringify({ 
+      error: 'O site wtr-lab.com criptografa o conteúdo dos capítulos. ' +
+             'Não é possível extrair o texto sem um navegador real. ' +
+             'Tente usar um site alternativo como novelbin.com ou allnovelbin.net para esta novel.'
+    }),
+    { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+  );
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -255,6 +317,11 @@ serve(async (req) => {
     const parsedUrl = new URL(url);
     const hostname = parsedUrl.hostname;
     console.log('Scraping URL:', url, '| Host:', hostname);
+
+    // === wtr-lab.com: use internal API directly ===
+    if (hostname.includes('wtr-lab.com')) {
+      return await handleWtrLab(url, parsedUrl);
+    }
 
     const fetchOpts = {
       headers: {
