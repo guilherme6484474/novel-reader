@@ -14,6 +14,211 @@ export type Database = {
   }
   public: {
     Tables: {
+      nav_community_reports: {
+        Row: {
+          alert_id: string | null
+          created_at: string
+          description: string | null
+          id: string
+          is_anonymous: boolean
+          latitude: number
+          longitude: number
+          report_type: string
+          status: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          alert_id?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_anonymous?: boolean
+          latitude: number
+          longitude: number
+          report_type?: string
+          status?: string
+          title: string
+          user_id: string
+        }
+        Update: {
+          alert_id?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_anonymous?: boolean
+          latitude?: number
+          longitude?: number
+          report_type?: string
+          status?: string
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nav_community_reports_alert_id_fkey"
+            columns: ["alert_id"]
+            isOneToOne: false
+            referencedRelation: "nav_security_alerts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nav_muted_areas: {
+        Row: {
+          alert_id: string
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          alert_id: string
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          alert_id?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nav_muted_areas_alert_id_fkey"
+            columns: ["alert_id"]
+            isOneToOne: false
+            referencedRelation: "nav_security_alerts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nav_points_of_interest: {
+        Row: {
+          address: string | null
+          category: string
+          created_at: string
+          id: string
+          is_24h: boolean
+          latitude: number
+          longitude: number
+          name: string
+          phone: string | null
+          safety_rating: number | null
+        }
+        Insert: {
+          address?: string | null
+          category: string
+          created_at?: string
+          id?: string
+          is_24h?: boolean
+          latitude: number
+          longitude: number
+          name: string
+          phone?: string | null
+          safety_rating?: number | null
+        }
+        Update: {
+          address?: string | null
+          category?: string
+          created_at?: string
+          id?: string
+          is_24h?: boolean
+          latitude?: number
+          longitude?: number
+          name?: string
+          phone?: string | null
+          safety_rating?: number | null
+        }
+        Relationships: []
+      }
+      nav_security_alerts: {
+        Row: {
+          alert_level: string
+          created_at: string
+          description: string | null
+          expires_at: string | null
+          id: string
+          is_active: boolean
+          latitude: number
+          longitude: number
+          polygon_coordinates: Json | null
+          radius_meters: number
+          source: string
+          title: string
+          updated_at: string
+          verification_count: number
+          verified: boolean
+        }
+        Insert: {
+          alert_level?: string
+          created_at?: string
+          description?: string | null
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          latitude: number
+          longitude: number
+          polygon_coordinates?: Json | null
+          radius_meters?: number
+          source?: string
+          title: string
+          updated_at?: string
+          verification_count?: number
+          verified?: boolean
+        }
+        Update: {
+          alert_level?: string
+          created_at?: string
+          description?: string | null
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          latitude?: number
+          longitude?: number
+          polygon_coordinates?: Json | null
+          radius_meters?: number
+          source?: string
+          title?: string
+          updated_at?: string
+          verification_count?: number
+          verified?: boolean
+        }
+        Relationships: []
+      }
+      nav_user_preferences: {
+        Row: {
+          alert_sensitivity: string
+          created_at: string
+          id: string
+          prefer_safe_routes: boolean
+          sound_alerts: boolean
+          updated_at: string
+          user_id: string
+          visual_alerts: boolean
+        }
+        Insert: {
+          alert_sensitivity?: string
+          created_at?: string
+          id?: string
+          prefer_safe_routes?: boolean
+          sound_alerts?: boolean
+          updated_at?: string
+          user_id: string
+          visual_alerts?: boolean
+        }
+        Update: {
+          alert_sensitivity?: string
+          created_at?: string
+          id?: string
+          prefer_safe_routes?: boolean
+          sound_alerts?: boolean
+          updated_at?: string
+          user_id?: string
+          visual_alerts?: boolean
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
