@@ -306,6 +306,12 @@ const Index = () => {
         setDisplayText(streamedText);
         setTranslationProgress(Math.min(99, Math.round((streamedText.length / originalLength) * 100)));
         needsFlush = false;
+        // Save partial translation to sessionStorage for recovery
+        if (streamedText.length > 100) {
+          sessionStorage.setItem('nr-partialTranslation', streamedText);
+          sessionStorage.setItem('nr-partialTranslationUrl', chapterUrl);
+          sessionStorage.setItem('nr-partialTranslationLang', language);
+        }
       };
 
       translateChapterStream(data.content, language, (delta) => {
@@ -317,12 +323,17 @@ const Index = () => {
         cancelAnimationFrame(rafId);
         setDisplayText("");
         setTranslationProgress(0);
+        toast.info("Motor de IA indisponível, usando Google Translate...", { duration: 3000 });
       })
         .then(() => {
           cancelAnimationFrame(rafId);
           setDisplayText(streamedText);
           setTranslationProgress(100);
           setCachedTranslation(chapterUrl, language, streamedText);
+          // Clear partial cache on success
+          sessionStorage.removeItem('nr-partialTranslation');
+          sessionStorage.removeItem('nr-partialTranslationUrl');
+          sessionStorage.removeItem('nr-partialTranslationLang');
           if (autoReadRef.current) {
             setTimeout(() => tts.speak(streamedText), 300);
           }
@@ -331,7 +342,18 @@ const Index = () => {
         })
         .catch((err: any) => {
           if (err.name === 'AbortError') return;
-          toast.error("Erro na tradução: " + err.message);
+          toast.error("Erro na tradução", {
+            description: err.message,
+            action: {
+              label: "Tentar novamente",
+              onClick: () => handleRetranslate(),
+            },
+            duration: 10000,
+          });
+          // If we have partial text, keep it visible
+          if (streamedText.length > 50) {
+            toast.warning("Tradução parcial exibida. Use 'Retraduzir' para completar.", { duration: 5000 });
+          }
         })
         .finally(() => {
           if (abortRef.current === controller) {
