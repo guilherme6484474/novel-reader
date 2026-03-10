@@ -1017,6 +1017,32 @@ const Index = () => {
         {/* Chapter */}
         {chapter && !isLoading && (
           <>
+            {/* Top Navigation */}
+            <nav className="flex items-center justify-between py-3 mb-4 border-b border-border/60">
+              <Button
+                variant="outline"
+                onClick={() => chapter.prevChapterUrl && loadChapter(chapter.prevChapterUrl)}
+                disabled={!chapter.prevChapterUrl || isLoading || isTranslating}
+                className="rounded-xl border-border/60 gap-1 text-xs sm:text-sm"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Anterior
+              </Button>
+
+              <span className="text-xs text-muted-foreground font-medium truncate max-w-[40%] text-center">
+                {chapter.title}
+              </span>
+
+              <Button
+                onClick={() => chapter.nextChapterUrl && loadChapter(chapter.nextChapterUrl)}
+                disabled={!chapter.nextChapterUrl || isLoading || isTranslating}
+                className="rounded-xl gap-1 text-xs sm:text-sm"
+              >
+                Próximo
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </nav>
+
             <header className="mb-6 sm:mb-8">
               <h2
                 className="text-xl sm:text-2xl font-bold leading-tight text-foreground mb-2"
