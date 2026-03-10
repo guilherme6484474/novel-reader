@@ -185,6 +185,13 @@ const Index = () => {
     if (savedScroll && chapter && displayText) {
       setTimeout(() => window.scrollTo(0, Number(savedScroll)), 100);
     }
+    // Recover partial translation if available
+    const partialText = sessionStorage.getItem('nr-partialTranslation');
+    const partialUrl = sessionStorage.getItem('nr-partialTranslationUrl');
+    if (partialText && partialUrl && chapter && partialUrl === url && !displayText) {
+      setDisplayText(partialText);
+      toast.warning("Tradução parcial recuperada. Use 'Retraduzir' para completar.", { duration: 6000 });
+    }
   }, []); // only on mount
 
   // Save scroll position periodically
