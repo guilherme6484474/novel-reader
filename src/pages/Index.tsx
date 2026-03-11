@@ -1046,8 +1046,8 @@ const Index = () => {
         {/* Chapter */}
         {chapter && !isLoading && (
           <>
-            {/* Top Navigation */}
-            <nav className="flex items-center justify-between py-3 mb-4 border-b border-border/60">
+            {/* Top Navigation - sticky so it stays visible while scrolling */}
+            <nav className="flex items-center justify-between py-3 mb-4 border-b border-border/60 sticky top-0 z-20 bg-background/95 backdrop-blur-sm -mx-4 sm:-mx-6 px-4 sm:px-6">
               <Button
                 variant="outline"
                 onClick={() => chapter.prevChapterUrl && loadChapter(chapter.prevChapterUrl)}
