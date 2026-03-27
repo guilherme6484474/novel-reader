@@ -345,12 +345,37 @@ serve(async (req) => {
       },
     };
 
-    const response = await fetch(url, fetchOpts);
+    let response = await fetch(url, fetchOpts);
+    
+    // If direct fetch fails (403/503), try proxy fallbacks
     if (!response.ok) {
-      return new Response(
-        JSON.stringify({ error: `Failed to fetch: ${response.status}` }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      console.log(`Direct fetch failed with ${response.status}, trying proxies...`);
+      const proxyUrls = [
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+        `https://corsproxy.io/?${encodeURIComponent(url)}`,
+      ];
+      let proxyWorked = false;
+      for (const proxyUrl of proxyUrls) {
+        try {
+          const proxyResp = await fetch(proxyUrl, {
+            headers: { 'User-Agent': fetchOpts.headers['User-Agent'] },
+          });
+          if (proxyResp.ok) {
+            response = proxyResp;
+            proxyWorked = true;
+            console.log('Proxy fallback succeeded');
+            break;
+          }
+        } catch (e) {
+          console.log('Proxy failed:', e);
+        }
+      }
+      if (!proxyWorked) {
+        return new Response(
+          JSON.stringify({ error: `Failed to fetch: ${response.status}` }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
     }
     const html = await response.text();
 
