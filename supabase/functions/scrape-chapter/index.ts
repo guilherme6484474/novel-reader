@@ -434,6 +434,54 @@ serve(async (req) => {
       }
     }
 
+    // webnovel.com: fetch catalog to find next/prev chapter (IDs are non-sequential)
+    if (hostname.includes('webnovel.com') && (!nextChapterUrl || !prevChapterUrl)) {
+      try {
+        // Extract bookId and current chapter slug from URL
+        // URL pattern: /book/{slug}_{bookId}/{chapterSlug}_{chapterId}
+        const bookMatch = url.match(/\/book\/[^/]+_(\d+)\/([^/?#]+)/);
+        if (bookMatch) {
+          const bookId = bookMatch[1];
+          const currentSlug = bookMatch[2]; // e.g. "1_84281807280864220"
+          const catalogUrl = `https://www.webnovel.com/book/${bookId}/catalog`;
+          console.log('Fetching webnovel catalog for navigation...');
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 10000);
+          const catResp = await fetch(catalogUrl, { ...fetchOpts, signal: controller.signal });
+          clearTimeout(timeout);
+          if (catResp.ok) {
+            const catHtml = await catResp.text();
+            // Extract all chapter URLs from catalog
+            const chapterLinks: string[] = [];
+            const linkRegex = /\/book\/[^"]*?_\d+\/([^"]+_\d+)/g;
+            let linkMatch;
+            const seen = new Set<string>();
+            while ((linkMatch = linkRegex.exec(catHtml)) !== null) {
+              const slug = linkMatch[1];
+              if (!seen.has(slug)) {
+                seen.add(slug);
+                chapterLinks.push(slug);
+              }
+            }
+            // Find current chapter index and get adjacent
+            const currentIdx = chapterLinks.indexOf(currentSlug);
+            if (currentIdx !== -1) {
+              const bookSlug = url.match(/\/book\/([^/]+)\//)?.[1] || '';
+              if (currentIdx > 0 && !prevChapterUrl) {
+                prevChapterUrl = `https://www.webnovel.com/book/${bookSlug}/${chapterLinks[currentIdx - 1]}`;
+              }
+              if (currentIdx < chapterLinks.length - 1 && !nextChapterUrl) {
+                nextChapterUrl = `https://www.webnovel.com/book/${bookSlug}/${chapterLinks[currentIdx + 1]}`;
+              }
+              console.log(`Catalog: found ${chapterLinks.length} chapters, current index=${currentIdx}`);
+            }
+          }
+        }
+      } catch (e) {
+        console.log('Webnovel catalog fetch failed:', (e as Error).message);
+      }
+    }
+
     // Resolve relative URLs
     const origin = parsedUrl.origin;
     if (nextChapterUrl && !nextChapterUrl.startsWith('http')) {
