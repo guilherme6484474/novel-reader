@@ -101,6 +101,10 @@ function extractContent(html: string, hostname: string): string {
       /class="[^"]*chapter-body[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
       /class="[^"]*chapter-wrap[^"]*card-body[^"]*"[^>]*>[\s\S]*?<div[^>]*class="[^"]*chapter-body[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
     ],
+    'novellive.app': [
+      /class="[^"]*txt[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<div\s+class="chapter-end"/i,
+      /class="[^"]*txt[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+    ],
   };
 
   // Try site-specific selectors
@@ -238,6 +242,14 @@ function extractNavLinks(html: string, hostname: string): { next: string; prev: 
       prev: [
         /href="([^"]*\/chapter-\d+[^"]*)"[^>]*>\s*(?:[\s\S]*?)Prev/i,
         /class="[^"]*prev[^"]*"[^>]*href="([^"]*)"/i,
+      ],
+    },
+    'novellive.app': {
+      next: [
+        /id="next"[^>]*href="([^"]*)"/i,
+      ],
+      prev: [
+        /id="prev"[^>]*href="([^"]*)"/i,
       ],
     },
   };
