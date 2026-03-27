@@ -347,33 +347,39 @@ serve(async (req) => {
 
     let response = await fetch(url, fetchOpts);
     
-    // If direct fetch fails (403/503), try proxy fallbacks
+    // If direct fetch fails (403/503), try proxy fallbacks with fast timeouts
     if (!response.ok) {
-      console.log(`Direct fetch failed with ${response.status}, trying proxies...`);
+      const status = response.status;
+      console.log(`Direct fetch failed with ${status}, trying proxies...`);
+      
       const proxyUrls = [
         `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-        `https://corsproxy.io/?${encodeURIComponent(url)}`,
+        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
       ];
       let proxyWorked = false;
       for (const proxyUrl of proxyUrls) {
         try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 8000);
           const proxyResp = await fetch(proxyUrl, {
             headers: { 'User-Agent': fetchOpts.headers['User-Agent'] },
+            signal: controller.signal,
           });
+          clearTimeout(timeout);
           if (proxyResp.ok) {
             response = proxyResp;
             proxyWorked = true;
-            console.log('Proxy fallback succeeded');
+            console.log(`Proxy fallback succeeded: ${proxyUrl.split('?')[0]}`);
             break;
           }
         } catch (e) {
-          console.log('Proxy failed:', e);
+          console.log('Proxy failed/timeout:', (e as Error).message);
         }
       }
       if (!proxyWorked) {
         return new Response(
-          JSON.stringify({ error: `Failed to fetch: ${response.status}` }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          JSON.stringify({ error: `O site bloqueou o acesso (${status}). Tente usar um site alternativo como novelbin.com ou allnovelbin.net.` }),
+          { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
     }
