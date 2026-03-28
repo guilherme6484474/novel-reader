@@ -286,13 +286,13 @@ function extractNavLinks(html: string, hostname: string): { next: string; prev: 
     },
     'freewebnovel': {
       next: [
+        /href="([^"]*)"[^>]*id="next_url"/i,
         /id="next_url"[^>]*href="([^"]*)"/i,
-        /href="([^"]*\/chapter-\d+[^"]*)"[^>]*(?:id="next_url"|title="Read Next chapter")/i,
-        /href="([^"]*\/chapter-\d+[^"]*)"[^>]*>\s*Next\s*Chapter/i,
+        /href="([^"]*\/chapter-\d+[^"]*)"[^>]*title="Read Next chapter"/i,
       ],
       prev: [
+        /href="([^"]*)"[^>]*id="prev_url"/i,
         /id="prev_url"[^>]*href="([^"]*)"/i,
-        /href="([^"]*\/chapter-\d+[^"]*)"[^>]*>\s*Prev\s*Chapter/i,
       ],
     },
   };
