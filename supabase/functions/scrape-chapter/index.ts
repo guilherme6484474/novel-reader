@@ -545,8 +545,8 @@ serve(async (req) => {
       prevChapterUrl = nav.prev;
     }
 
-    // wtr-lab.com: URL-based chapter navigation fallback (buttons are JS-driven)
-    if (hostname.includes('wtr-lab.com')) {
+    // URL-based chapter navigation fallback for sites with sequential chapter URLs
+    if (hostname.includes('wtr-lab.com') || hostname.includes('freewebnovel')) {
       const chapterMatch = url.match(/\/chapter-(\d+)/);
       if (chapterMatch) {
         const chNum = parseInt(chapterMatch[1], 10);
