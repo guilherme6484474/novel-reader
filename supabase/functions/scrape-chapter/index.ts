@@ -470,7 +470,7 @@ serve(async (req) => {
     }
 
     // webnovel.com: fetch catalog to find next/prev chapter (IDs are non-sequential)
-    if (hostname.includes('webnovel.com') && (!nextChapterUrl || !prevChapterUrl)) {
+    if (hostname.includes('webnovel.com')) {
       try {
         // Extract bookId and current chapter slug from URL
         // URL pattern: /book/{slug}_{bookId}/{chapterSlug}_{chapterId}
