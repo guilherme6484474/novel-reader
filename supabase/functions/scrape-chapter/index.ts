@@ -504,6 +504,7 @@ serve(async (req) => {
       }
     }
     const html = await response.text();
+    console.log(`HTML length: ${html.length}, has next_url: ${html.includes('next_url')}, has prev_url: ${html.includes('prev_url')}`);
 
     // Extract title
     let title = '';
