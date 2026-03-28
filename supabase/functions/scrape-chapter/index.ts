@@ -446,10 +446,14 @@ serve(async (req) => {
       }
     }
 
-    // Extract nav links
-    const nav = extractNavLinks(html, hostname);
-    let nextChapterUrl = nav.next;
-    let prevChapterUrl = nav.prev;
+    // Extract nav links (skip generic extraction for webnovel.com — it picks up wrong links like "Last Chapter")
+    let nextChapterUrl = '';
+    let prevChapterUrl = '';
+    if (!hostname.includes('webnovel.com')) {
+      const nav = extractNavLinks(html, hostname);
+      nextChapterUrl = nav.next;
+      prevChapterUrl = nav.prev;
+    }
 
     // wtr-lab.com: URL-based chapter navigation fallback (buttons are JS-driven)
     if (hostname.includes('wtr-lab.com')) {
@@ -466,7 +470,7 @@ serve(async (req) => {
     }
 
     // webnovel.com: fetch catalog to find next/prev chapter (IDs are non-sequential)
-    if (hostname.includes('webnovel.com') && (!nextChapterUrl || !prevChapterUrl)) {
+    if (hostname.includes('webnovel.com')) {
       try {
         // Extract bookId and current chapter slug from URL
         // URL pattern: /book/{slug}_{bookId}/{chapterSlug}_{chapterId}
