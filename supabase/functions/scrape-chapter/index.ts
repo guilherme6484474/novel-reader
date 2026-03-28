@@ -223,6 +223,10 @@ function cleanHtml(html: string): string {
     .replace(/Please\s+try\s+again\s+later\.?/gi, '')
     .replace(/Por\s+favor,?\s+tente\s+novamente\s+mais\s+tarde\.?/gi, '')
     .replace(/—\s*End\s+of\s+Chapter\s+\d+\s*—/gi, '')
+    // Strip residual HTML attribute fragments (e.g. " id="" type="radio" ...")
+    .replace(/"\s*(?:id|type|name|value|class|href|src|data-\w+)\s*=\s*"[^"]*"\s*/g, '')
+    .replace(/^\s*[">}\]]\s*$/gm, '')
+    .replace(/^\s*[-,.\s]{1,5}\s*$/gm, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
