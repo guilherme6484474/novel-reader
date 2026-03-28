@@ -283,6 +283,17 @@ function extractNavLinks(html: string, hostname: string): { next: string; prev: 
         /id="prev"[^>]*href="([^"]*)"/i,
       ],
     },
+    'freewebnovel': {
+      next: [
+        /id="next_url"[^>]*href="([^"]*)"/i,
+        /href="([^"]*\/chapter-\d+[^"]*)"[^>]*(?:id="next_url"|title="Read Next chapter")/i,
+        /href="([^"]*\/chapter-\d+[^"]*)"[^>]*>\s*Next\s*Chapter/i,
+      ],
+      prev: [
+        /id="prev_url"[^>]*href="([^"]*)"/i,
+        /href="([^"]*\/chapter-\d+[^"]*)"[^>]*>\s*Prev\s*Chapter/i,
+      ],
+    },
   };
   for (const [site, patterns] of Object.entries(siteNavPatterns)) {
     if (hostname.includes(site)) {
