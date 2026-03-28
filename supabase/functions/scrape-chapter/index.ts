@@ -431,7 +431,7 @@ serve(async (req) => {
         const cacheResp = await fetch(cacheUrl, fetchOpts);
         if (cacheResp.ok) {
           const cacheHtml = await cacheResp.text();
-          const cacheContent = extractContent(cacheHtml, hostname);
+          const cacheContent = trimChapterContent(extractContent(cacheHtml, hostname), title, hostname);
           if (cacheContent.length > (content?.length || 0)) {
             content = cacheContent;
           }
