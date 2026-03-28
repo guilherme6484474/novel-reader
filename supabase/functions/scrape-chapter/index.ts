@@ -298,13 +298,14 @@ function extractNavLinks(html: string, hostname: string): { next: string; prev: 
   };
   for (const [site, patterns] of Object.entries(siteNavPatterns)) {
     if (hostname.includes(site)) {
+      console.log(`Nav: matched site pattern '${site}'`);
       for (const p of patterns.next) {
         const m = html.match(p);
-        if (m) { next = m[1]; break; }
+        if (m) { next = m[1]; console.log(`Nav next matched: ${next}`); break; }
       }
       for (const p of patterns.prev) {
         const m = html.match(p);
-        if (m) { prev = m[1]; break; }
+        if (m) { prev = m[1]; console.log(`Nav prev matched: ${prev}`); break; }
       }
       if (next || prev) return { next, prev };
     }
