@@ -60,8 +60,9 @@ function extractContent(html: string, hostname: string): string {
       /class="[^"]*chapter-c[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
     ],
     'freewebnovel': [
-      /class="[^"]*chapter-content[0-9]*[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+      /class="[^"]*txt[^"]*"[^>]*style="[^"]*"[^>]*>([\s\S]*?)<\/div>\s*(?:<div\s+class="[^"]*chapter-end|<\/div>\s*<\/div>)/i,
       /id="article"[^>]*>([\s\S]*?)<\/div>/i,
+      /class="[^"]*chapter-content[0-9]*[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
     ],
     'webnovel.com': [
       /class="[^"]*chapter_content[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
