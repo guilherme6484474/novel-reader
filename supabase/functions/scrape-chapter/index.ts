@@ -331,6 +331,51 @@ function extractNavLinks(html: string, hostname: string): { next: string; prev: 
   return { next, prev };
 }
 
+function normalizeWebnovelSlug(slug: string): string {
+  return slug.replace(/&amp;/g, '&').trim().replace(/\/$/, '');
+}
+
+function getWebnovelChapterNumber(value: string): number | null {
+  const normalized = cleanHtml(value).replace(/\s+/g, ' ').trim();
+  const match = normalized.match(/\bchapter\s+(\d+(?:\.\d+)?)\b/i);
+  if (match) return Number(match[1]);
+  return null;
+}
+
+function extractWebnovelCatalogSequence(catHtml: string): string[] {
+  const anchorRegex = /<a\b[^>]*href="([^"]*\/book\/[^"]*?_\d+\/([^"]+_\d+))"[^>]*>([\s\S]*?)<\/a>/gi;
+  const numbered = new Map<number, string>();
+  const fallbackOrdered: string[] = [];
+  const fallbackSeen = new Set<string>();
+
+  let match: RegExpExecArray | null;
+  while ((match = anchorRegex.exec(catHtml)) !== null) {
+    const slug = normalizeWebnovelSlug(match[2]);
+    const anchorHtml = match[3] ?? '';
+    const chapterNumber = getWebnovelChapterNumber(anchorHtml) ?? getWebnovelChapterNumber(slug.replace(/[_-]+/g, ' '));
+
+    if (chapterNumber !== null) {
+      if (!numbered.has(chapterNumber)) {
+        numbered.set(chapterNumber, slug);
+      }
+      continue;
+    }
+
+    if (!fallbackSeen.has(slug) && /^\d+_\d+$/.test(slug)) {
+      fallbackSeen.add(slug);
+      fallbackOrdered.push(slug);
+    }
+  }
+
+  if (numbered.size > 1) {
+    return [...numbered.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, slug]) => slug);
+  }
+
+  return fallbackOrdered;
+}
+
 async function handleWtrLab(url: string, parsedUrl: URL): Promise<Response> {
   return new Response(
     JSON.stringify({ 
@@ -486,20 +531,10 @@ serve(async (req) => {
           clearTimeout(timeout);
           if (catResp.ok) {
             const catHtml = await catResp.text();
-            // Extract all chapter URLs from catalog
-            const chapterLinks: string[] = [];
-            const linkRegex = /\/book\/[^"]*?_\d+\/([^"]+_\d+)/g;
-            let linkMatch;
-            const seen = new Set<string>();
-            while ((linkMatch = linkRegex.exec(catHtml)) !== null) {
-              const slug = linkMatch[1];
-              if (!seen.has(slug)) {
-                seen.add(slug);
-                chapterLinks.push(slug);
-              }
-            }
+            const chapterLinks = extractWebnovelCatalogSequence(catHtml);
             // Find current chapter index and get adjacent
-            const currentIdx = chapterLinks.indexOf(currentSlug);
+            const normalizedCurrentSlug = normalizeWebnovelSlug(currentSlug);
+            const currentIdx = chapterLinks.indexOf(normalizedCurrentSlug);
             if (currentIdx !== -1) {
               const bookSlug = url.match(/\/book\/([^/]+)\//)?.[1] || '';
               if (currentIdx > 0 && !prevChapterUrl) {
@@ -509,6 +544,8 @@ serve(async (req) => {
                 nextChapterUrl = `https://www.webnovel.com/book/${bookSlug}/${chapterLinks[currentIdx + 1]}`;
               }
               console.log(`Catalog: found ${chapterLinks.length} chapters, current index=${currentIdx}`);
+            } else {
+              console.log(`Catalog: current slug not found (${normalizedCurrentSlug}), first entries=${chapterLinks.slice(0, 5).join(', ')}`);
             }
           }
         }
