@@ -60,8 +60,9 @@ function extractContent(html: string, hostname: string): string {
       /class="[^"]*chapter-c[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
     ],
     'freewebnovel': [
-      /class="[^"]*chapter-content[0-9]*[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+      /class="[^"]*txt[^"]*"[^>]*style="[^"]*"[^>]*>([\s\S]*?)<\/div>\s*(?:<div\s+class="[^"]*chapter-end|<\/div>\s*<\/div>)/i,
       /id="article"[^>]*>([\s\S]*?)<\/div>/i,
+      /class="[^"]*chapter-content[0-9]*[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
     ],
     'webnovel.com': [
       /class="[^"]*chapter_content[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
@@ -283,16 +284,28 @@ function extractNavLinks(html: string, hostname: string): { next: string; prev: 
         /id="prev"[^>]*href="([^"]*)"/i,
       ],
     },
+    'freewebnovel': {
+      next: [
+        /href="([^"]*)"[^>]*id="next_url"/i,
+        /id="next_url"[^>]*href="([^"]*)"/i,
+        /href="([^"]*\/chapter-\d+[^"]*)"[^>]*title="Read Next chapter"/i,
+      ],
+      prev: [
+        /href="([^"]*)"[^>]*id="prev_url"/i,
+        /id="prev_url"[^>]*href="([^"]*)"/i,
+      ],
+    },
   };
   for (const [site, patterns] of Object.entries(siteNavPatterns)) {
     if (hostname.includes(site)) {
+      console.log(`Nav: matched site pattern '${site}'`);
       for (const p of patterns.next) {
         const m = html.match(p);
-        if (m) { next = m[1]; break; }
+        if (m) { next = m[1]; console.log(`Nav next matched: ${next}`); break; }
       }
       for (const p of patterns.prev) {
         const m = html.match(p);
-        if (m) { prev = m[1]; break; }
+        if (m) { prev = m[1]; console.log(`Nav prev matched: ${prev}`); break; }
       }
       if (next || prev) return { next, prev };
     }
@@ -491,6 +504,7 @@ serve(async (req) => {
       }
     }
     const html = await response.text();
+    console.log(`HTML length: ${html.length}, has next_url: ${html.includes('next_url')}, has prev_url: ${html.includes('prev_url')}`);
 
     // Extract title
     let title = '';
@@ -531,8 +545,8 @@ serve(async (req) => {
       prevChapterUrl = nav.prev;
     }
 
-    // wtr-lab.com: URL-based chapter navigation fallback (buttons are JS-driven)
-    if (hostname.includes('wtr-lab.com')) {
+    // URL-based chapter navigation fallback for sites with sequential chapter URLs
+    if (hostname.includes('wtr-lab.com') || hostname.includes('freewebnovel')) {
       const chapterMatch = url.match(/\/chapter-(\d+)/);
       if (chapterMatch) {
         const chNum = parseInt(chapterMatch[1], 10);
