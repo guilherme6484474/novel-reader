@@ -277,10 +277,33 @@ const Index = () => {
       // Save progress
       if (user) {
         const urlObj = new URL(chapterUrl);
+        const hostname = urlObj.hostname;
         const pathParts = urlObj.pathname.split('/').filter(Boolean);
-        const novelSlug = pathParts.length >= 2 ? pathParts[pathParts.length - 2] : pathParts[0] || 'unknown';
-        const novelName = novelSlug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        saveReadingProgress(user.id, chapterUrl, novelName, chapterUrl, data.title);
+        
+        let novelSlug: string;
+        let baseUrl: string;
+        
+        if (hostname.includes('webnovel.com')) {
+          // URL: /book/catastrophic-necromancer_29569742908502605/chapterSlug
+          // Novel slug is the book part (index 1), strip the numeric ID suffix
+          novelSlug = pathParts[1] || 'unknown';
+          baseUrl = `${urlObj.origin}/book/${novelSlug}`;
+        } else if (hostname.includes('freewebnovel')) {
+          // URL: /novel/catastrophic-necromancer/chapter-1
+          novelSlug = pathParts[1] || pathParts[0] || 'unknown';
+          baseUrl = `${urlObj.origin}/novel/${novelSlug}`;
+        } else {
+          novelSlug = pathParts.length >= 2 ? pathParts[pathParts.length - 2] : pathParts[0] || 'unknown';
+          baseUrl = chapterUrl.replace(/\/chapter.*$/i, '');
+        }
+        
+        // Clean novel name: remove numeric IDs (e.g. _29569742908502605), replace dashes
+        const novelName = novelSlug
+          .replace(/_\d{10,}$/, '')  // strip long numeric suffixes like _29569742908502605
+          .replace(/-/g, ' ')
+          .replace(/\b\w/g, c => c.toUpperCase());
+        
+        saveReadingProgress(user.id, baseUrl, novelName, chapterUrl, data.title);
         getReadingHistory(user.id).then(setHistory);
       }
 
