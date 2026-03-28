@@ -421,7 +421,7 @@ serve(async (req) => {
     else if (titleTag) title = cleanHtml(titleTag[1]);
 
     // Extract content with site-aware selectors
-    let content = extractContent(html, hostname);
+    let content = trimChapterContent(extractContent(html, hostname), title, hostname);
 
     // If direct fetch got no content, try via a web cache/proxy approach
     if (!content || content.length < 100) {
