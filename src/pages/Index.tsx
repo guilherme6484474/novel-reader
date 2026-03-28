@@ -464,7 +464,19 @@ const Index = () => {
         <div className="mx-auto max-w-3xl px-4 sm:px-6 py-3 sm:py-4">
           {/* Top bar */}
           <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2.5">
+            <div
+              className="flex items-center gap-2.5 cursor-pointer"
+              onClick={() => {
+                tts.stop();
+                setChapter(null);
+                setDisplayText("");
+                setUrl("");
+                sessionStorage.removeItem('nr-currentChapter');
+                sessionStorage.removeItem('nr-displayText');
+                sessionStorage.removeItem('nr-currentUrl');
+                window.scrollTo({ top: 0, behavior: 'instant' });
+              }}
+            >
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
                 <BookOpen className="h-5 w-5 text-primary" />
               </div>
@@ -703,7 +715,7 @@ const Index = () => {
                   <Slider
                     value={[tts.rate]}
                     onValueChange={([v]) => tts.setRate(v)}
-                    min={0.5} max={3} step={0.1}
+                    min={0.5} max={4} step={0.1}
                     className="flex-1"
                   />
                   <span className="text-xs font-medium text-foreground w-8 sm:w-10 text-right">{tts.rate}x</span>
@@ -985,12 +997,11 @@ const Index = () => {
                         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 group-hover:bg-primary/15 transition-colors">
                           <BookOpen className="h-5 w-5 text-primary" />
                         </div>
-                        <div className="min-w-0 flex-1">
+                      <div className="min-w-0 flex-1">
                           <p className="text-sm font-semibold text-foreground truncate">{novel.novel_title}</p>
                           <p className="text-xs text-muted-foreground mt-1">
                             <span className="text-foreground/60">
                               {(() => {
-                                // Show chapter info: prefer chapter_title if different from novel_title, else extract from URL
                                 if (novel.chapter_title && novel.chapter_title !== novel.novel_title) {
                                   return novel.chapter_title;
                                 }
@@ -1003,6 +1014,18 @@ const Index = () => {
                             {new Date(novel.last_read_at).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                           </p>
                         </div>
+                        <Button
+                          variant="ghost" size="icon"
+                          className="h-10 w-10 opacity-0 group-hover:opacity-100 text-destructive/60 hover:text-destructive shrink-0 transition-opacity"
+                          title="Remover novel"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteHistory(novel.id);
+                            toast.success("Novel removida da lista");
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                         <ChevronRight className="h-4 w-4 text-muted-foreground/40 group-hover:text-primary transition-colors shrink-0" />
                       </div>
                     ))}
