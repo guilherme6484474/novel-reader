@@ -390,6 +390,23 @@ function extractWebnovelCatalogSequence(catHtml: string): string[] {
     .map((item) => item.slug);
 }
 
+function extractWebnovelMainChapterSequence(catHtml: string): string[] {
+  const linkRegex = /\/book\/[^"'#?]+\/(\d+_\d+)/g;
+  const items = new Map<number, string>();
+  let match: RegExpExecArray | null;
+
+  while ((match = linkRegex.exec(catHtml)) !== null) {
+    const slug = normalizeWebnovelSlug(match[1]);
+    const chapterNumber = Number(slug.split('_')[0]);
+    if (!Number.isFinite(chapterNumber) || items.has(chapterNumber)) continue;
+    items.set(chapterNumber, slug);
+  }
+
+  return [...items.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([, slug]) => slug);
+}
+
 async function handleWtrLab(url: string, parsedUrl: URL): Promise<Response> {
   return new Response(
     JSON.stringify({ 
@@ -545,7 +562,9 @@ serve(async (req) => {
           clearTimeout(timeout);
           if (catResp.ok) {
             const catHtml = await catResp.text();
-            const chapterLinks = extractWebnovelCatalogSequence(catHtml);
+            const chapterLinks = /^\d+_\d+$/.test(currentSlug)
+              ? extractWebnovelMainChapterSequence(catHtml)
+              : extractWebnovelCatalogSequence(catHtml);
             // Find current chapter index and get adjacent
             const normalizedCurrentSlug = normalizeWebnovelSlug(currentSlug);
             const currentIdx = chapterLinks.indexOf(normalizedCurrentSlug);
