@@ -531,7 +531,9 @@ serve(async (req) => {
           clearTimeout(timeout);
           if (catResp.ok) {
             const catHtml = await catResp.text();
+            console.log(`Catalog HTML length: ${catHtml.length}`);
             const chapterLinks = extractWebnovelCatalogSequence(catHtml);
+            console.log(`extractWebnovelCatalogSequence returned ${chapterLinks.length} links, first 10: ${chapterLinks.slice(0, 10).join(', ')}`);
             // Find current chapter index and get adjacent
             const normalizedCurrentSlug = normalizeWebnovelSlug(currentSlug);
             const currentIdx = chapterLinks.indexOf(normalizedCurrentSlug);
