@@ -253,8 +253,13 @@ function playWithHtmlAudio(arrayBuffer: ArrayBuffer, options: CloudTTSOptions): 
     isPlaying = true;
 
     // Set playback rate on the audio element for faster playback
-    const extraSpeed = (options.rate && options.rate > 1.5) ? Math.min(options.rate / 1.5, 2.0) : 1.0;
+    // Google Cloud TTS already applies rate up to ~1.5x via SSML, so we handle the remainder via playbackRate
+    const extraSpeed = (options.rate && options.rate > 1.5) ? Math.min(options.rate / 1.5, 4.0) : 1.0;
     audio.playbackRate = extraSpeed;
+    // Preserve pitch when speeding up
+    if ('preservesPitch' in audio) {
+      (audio as any).preservesPitch = true;
+    }
 
     audio.onended = () => {
       URL.revokeObjectURL(url);
