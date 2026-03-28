@@ -177,7 +177,8 @@ function trimChapterContent(content: string, title: string, hostname: string): s
     // Remove duplicate numeric markers and trailing site UI copied from markdown/html rendering
     trimmed = trimmed
       .replace(/^(?:\d+\s*){1,3}(?=Chapter\s+\d+)/i, '')
-      .replace(/\n{2,}(?:Table Of Contents|Display Options|Chapter comments|Paragraph comments|Write a review|Vote with Power Stone|You may also Like|Batch unlock chapters|Report inappropriate content|Help center)[\s\S]*$/i, '')
+      // Cut everything after common Webnovel UI markers
+      .replace(/\n{2,}(?:Table Of Contents|Display Options|Chapter comments|Paragraph comments|Write a review|Vote with Power Stone|You may also Like|Batch unlock chapters|Report inappropriate content|Help center|Weekly Power Status|Status de energia semanal|Weekly Energy Status|Power Stone|Fundo padr[ãa]o|unlock_batch_gear)[\s\S]*$/i, '')
       .replace(/\n{2,}(?:Advertisement|Whoops!|We might have some troubles to find out this page\.)[\s\S]*$/i, '')
       .replace(/\n{2,}get more coins[\s\S]*$/i, '')
       .trim();
@@ -222,6 +223,10 @@ function cleanHtml(html: string): string {
     .replace(/Please\s+try\s+again\s+later\.?/gi, '')
     .replace(/Por\s+favor,?\s+tente\s+novamente\s+mais\s+tarde\.?/gi, '')
     .replace(/—\s*End\s+of\s+Chapter\s+\d+\s*—/gi, '')
+    // Strip residual HTML attribute fragments (e.g. " id="" type="radio" ...")
+    .replace(/"\s*(?:id|type|name|value|class|href|src|data-\w+)\s*=\s*"[^"]*"\s*/g, '')
+    .replace(/^\s*[">}\]]\s*$/gm, '')
+    .replace(/^\s*[-,.\s]{1,5}\s*$/gm, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
