@@ -342,38 +342,69 @@ function getWebnovelChapterNumber(value: string): number | null {
   return null;
 }
 
+function getWebnovelChapterId(slug: string): number | null {
+  const match = normalizeWebnovelSlug(slug).match(/_(\d+)$/);
+  if (!match) return null;
+  return Number(match[1]);
+}
+
 function extractWebnovelCatalogSequence(catHtml: string): string[] {
   const anchorRegex = /<a\b[^>]*href="([^"]*\/book\/[^"]*?_\d+\/([^"]+_\d+))"[^>]*>([\s\S]*?)<\/a>/gi;
-  const numbered = new Map<number, string>();
-  const fallbackOrdered: string[] = [];
-  const fallbackSeen = new Set<string>();
+  const items = new Map<string, { slug: string; chapterNumber: number | null; chapterId: number | null }>();
 
   let match: RegExpExecArray | null;
   while ((match = anchorRegex.exec(catHtml)) !== null) {
     const slug = normalizeWebnovelSlug(match[2]);
     const anchorHtml = match[3] ?? '';
     const chapterNumber = getWebnovelChapterNumber(anchorHtml) ?? getWebnovelChapterNumber(slug.replace(/[_-]+/g, ' '));
+    const chapterId = getWebnovelChapterId(slug);
 
-    if (chapterNumber !== null) {
-      if (!numbered.has(chapterNumber)) {
-        numbered.set(chapterNumber, slug);
-      }
+    if (!items.has(slug)) {
+      items.set(slug, { slug, chapterNumber, chapterId });
       continue;
     }
 
-    if (!fallbackSeen.has(slug) && /^\d+_\d+$/.test(slug)) {
-      fallbackSeen.add(slug);
-      fallbackOrdered.push(slug);
+    const existing = items.get(slug)!;
+    if (existing.chapterNumber === null && chapterNumber !== null) {
+      existing.chapterNumber = chapterNumber;
+    }
+    if (existing.chapterId === null && chapterId !== null) {
+      existing.chapterId = chapterId;
     }
   }
 
-  if (numbered.size > 1) {
-    return [...numbered.entries()]
-      .sort((a, b) => a[0] - b[0])
-      .map(([, slug]) => slug);
+  return [...items.values()]
+    .sort((a, b) => {
+      if (a.chapterNumber !== null && b.chapterNumber !== null && a.chapterNumber !== b.chapterNumber) {
+        return a.chapterNumber - b.chapterNumber;
+      }
+      if (a.chapterNumber !== null && b.chapterNumber === null) return -1;
+      if (a.chapterNumber === null && b.chapterNumber !== null) return 1;
+      if (a.chapterId !== null && b.chapterId !== null && a.chapterId !== b.chapterId) {
+        return a.chapterId - b.chapterId;
+      }
+      if (a.chapterId !== null && b.chapterId === null) return -1;
+      if (a.chapterId === null && b.chapterId !== null) return 1;
+      return a.slug.localeCompare(b.slug);
+    })
+    .map((item) => item.slug);
+}
+
+function extractWebnovelMainChapterSequence(catHtml: string): string[] {
+  const linkRegex = /\/book\/[^"'#?]+\/(\d+_\d+)/g;
+  const items = new Map<number, string>();
+  let match: RegExpExecArray | null;
+
+  while ((match = linkRegex.exec(catHtml)) !== null) {
+    const slug = normalizeWebnovelSlug(match[1]);
+    const chapterNumber = Number(slug.split('_')[0]);
+    if (!Number.isFinite(chapterNumber) || items.has(chapterNumber)) continue;
+    items.set(chapterNumber, slug);
   }
 
-  return fallbackOrdered;
+  return [...items.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([, slug]) => slug);
 }
 
 async function handleWtrLab(url: string, parsedUrl: URL): Promise<Response> {
@@ -531,9 +562,9 @@ serve(async (req) => {
           clearTimeout(timeout);
           if (catResp.ok) {
             const catHtml = await catResp.text();
-            console.log(`Catalog HTML length: ${catHtml.length}`);
-            const chapterLinks = extractWebnovelCatalogSequence(catHtml);
-            console.log(`extractWebnovelCatalogSequence returned ${chapterLinks.length} links, first 10: ${chapterLinks.slice(0, 10).join(', ')}`);
+            const chapterLinks = /^\d+_\d+$/.test(currentSlug)
+              ? extractWebnovelMainChapterSequence(catHtml)
+              : extractWebnovelCatalogSequence(catHtml);
             // Find current chapter index and get adjacent
             const normalizedCurrentSlug = normalizeWebnovelSlug(currentSlug);
             const currentIdx = chapterLinks.indexOf(normalizedCurrentSlug);
