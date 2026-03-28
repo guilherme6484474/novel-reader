@@ -164,6 +164,34 @@ function extractContent(html: string, hostname: string): string {
   return '';
 }
 
+function trimChapterContent(content: string, title: string, hostname: string): string {
+  let trimmed = content.trim();
+
+  if (hostname.includes('webnovel.com')) {
+    // Start from the actual chapter heading when extra page chrome leaks in
+    const titleIndex = title ? trimmed.indexOf(title) : -1;
+    if (titleIndex > 0) {
+      trimmed = trimmed.slice(titleIndex);
+    }
+
+    // Remove duplicate numeric markers and trailing site UI copied from markdown/html rendering
+    trimmed = trimmed
+      .replace(/^(?:\d+\s*){1,3}(?=Chapter\s+\d+)/i, '')
+      .replace(/\n{2,}(?:Table Of Contents|Display Options|Chapter comments|Paragraph comments|Write a review|Vote with Power Stone|You may also Like|Batch unlock chapters|Report inappropriate content|Help center)[\s\S]*$/i, '')
+      .replace(/\n{2,}(?:Advertisement|Whoops!|We might have some troubles to find out this page\.)[\s\S]*$/i, '')
+      .replace(/\n{2,}get more coins[\s\S]*$/i, '')
+      .trim();
+  }
+
+  if (hostname.includes('novellive.app')) {
+    trimmed = trimmed
+      .replace(/\n{2,}Visit and read more novel to help us update chapter quickly\.[\s\S]*$/i, '')
+      .trim();
+  }
+
+  return trimmed;
+}
+
 function cleanHtml(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, '')
@@ -186,10 +214,8 @@ function cleanHtml(html: string): string {
     .replace(/&mdash;/g, '—')
     .replace(/&ndash;/g, '–')
     .replace(/window\.\w+\s*=[\s\S]*?[;\n]/g, '')
-    // Remove anti-piracy notices
     .replace(/This (?:narrative|story|novel|chapter) has been (?:unlawfully|illegally|stolen)[\s\S]*?(?:\.|report it)/gi, '')
     .replace(/If you see (?:it|this) on Amazon[\s\S]*?report it\.?/gi, '')
-    // Remove footer/comment junk
     .replace(/Total\s+Respo(?:nses|stas)\s*:\s*\d+/gi, '')
     .replace(/Erro?\s+(?:ao\s+)?(?:loading|carregar)\s+comments?.*$/gim, '')
     .replace(/Error\s+loading\s+comments?.*$/gim, '')
@@ -395,7 +421,7 @@ serve(async (req) => {
     else if (titleTag) title = cleanHtml(titleTag[1]);
 
     // Extract content with site-aware selectors
-    let content = extractContent(html, hostname);
+    let content = trimChapterContent(extractContent(html, hostname), title, hostname);
 
     // If direct fetch got no content, try via a web cache/proxy approach
     if (!content || content.length < 100) {
@@ -405,7 +431,7 @@ serve(async (req) => {
         const cacheResp = await fetch(cacheUrl, fetchOpts);
         if (cacheResp.ok) {
           const cacheHtml = await cacheResp.text();
-          const cacheContent = extractContent(cacheHtml, hostname);
+          const cacheContent = trimChapterContent(extractContent(cacheHtml, hostname), title, hostname);
           if (cacheContent.length > (content?.length || 0)) {
             content = cacheContent;
           }
