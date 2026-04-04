@@ -297,9 +297,20 @@ export async function piperSynthesize(
   voiceId?: string,
 ): Promise<Blob> {
   const vid = (voiceId || getPiperVoice()) as PiperVoiceId;
+  const cacheKey = getSynthCacheKey(text, vid);
+
+  // Check synthesis cache first
+  const cached = synthCache.get(cacheKey);
+  if (cached) {
+    ttsLog(`Piper synth cache hit: ${text.length} chars`);
+    return cached;
+  }
+
   const session = await getSession(vid);
-  ttsLog(`Piper synthesize (pre-buffer): ${text.length} chars`);
-  return await session.predict(text);
+  ttsLog(`Piper synthesize: ${text.length} chars`);
+  const blob = await session.predict(text);
+  cacheSynthResult(cacheKey, blob);
+  return blob;
 }
 
 /**
