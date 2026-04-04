@@ -485,8 +485,8 @@ function cleanup() {
   currentAudio = null;
 }
 
-/** Stop current Piper playback */
-export function piperStop() {
+/** Stop current Piper playback. preservePreBuffer=true keeps pre-buffered next chunk (for pause). */
+export function piperStop(preservePreBuffer = false) {
   playbackToken++;
 
   // Reject pending promise first so the caller's await unblocks immediately
@@ -501,7 +501,10 @@ export function piperStop() {
     currentAudio.currentTime = 0;
     cleanup();
   }
-  clearPreBuffer();
+
+  if (!preservePreBuffer) {
+    clearPreBuffer();
+  }
 
   // Reject after cleanup to avoid re-entrant issues
   if (rejectFn) {
