@@ -679,7 +679,7 @@ export function useTTS() {
     setIsPaused(true);
     clearWordTimer();
     updateMediaSessionPlaybackState('paused');
-    piperStop();
+    piperStop(true); // preserve pre-buffer for resume
     void nativeStop();
   }, [clearWordTimer]);
 

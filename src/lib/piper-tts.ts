@@ -251,7 +251,7 @@ async function pitchShiftBlob(wav: Blob, pitchFactor: number): Promise<Blob> {
   return audioBufferToWav(rendered);
 }
 
-// ─── Audio playback with pre-buffering ───
+// ─── Audio playback with pre-buffering and synthesis cache ───
 
 // Current audio element for stop control
 let currentAudio: HTMLAudioElement | null = null;
@@ -262,6 +262,23 @@ let playbackToken = 0;
 function ensureActivePlayback(token: number) {
   if (token !== playbackToken) {
     throw new Error('Piper playback cancelled');
+  }
+}
+
+// ─── Synthesis cache (avoids re-synthesizing on resume) ───
+const synthCache = new Map<string, Blob>();
+const SYNTH_CACHE_MAX = 6;
+
+function getSynthCacheKey(text: string, voiceId: PiperVoiceId): string {
+  return `${voiceId}::${text}`;
+}
+
+function cacheSynthResult(key: string, blob: Blob) {
+  synthCache.set(key, blob);
+  // Evict oldest entries
+  if (synthCache.size > SYNTH_CACHE_MAX) {
+    const first = synthCache.keys().next().value;
+    if (first) synthCache.delete(first);
   }
 }
 
@@ -280,9 +297,20 @@ export async function piperSynthesize(
   voiceId?: string,
 ): Promise<Blob> {
   const vid = (voiceId || getPiperVoice()) as PiperVoiceId;
+  const cacheKey = getSynthCacheKey(text, vid);
+
+  // Check synthesis cache first
+  const cached = synthCache.get(cacheKey);
+  if (cached) {
+    ttsLog(`Piper synth cache hit: ${text.length} chars`);
+    return cached;
+  }
+
   const session = await getSession(vid);
-  ttsLog(`Piper synthesize (pre-buffer): ${text.length} chars`);
-  return await session.predict(text);
+  ttsLog(`Piper synthesize: ${text.length} chars`);
+  const blob = await session.predict(text);
+  cacheSynthResult(cacheKey, blob);
+  return blob;
 }
 
 /**
@@ -347,22 +375,31 @@ export async function piperSpeak(
   const rate = options?.rate ?? 1;
   const pitch = options?.pitch ?? 1;
   let wav: Blob;
+  const synthCacheKey = getSynthCacheKey(text, vid);
 
-  // Check if we already pre-rendered this exact chunk
+  // Priority 1: Check pre-buffer (synthesized in background during previous chunk)
   if (preBufferedKey === requestedKey && preBufferPromise) {
     const buffered = await preBufferPromise;
     ensureActivePlayback(token);
     if (buffered && preBufferedKey === requestedKey) {
       ttsLog('Using pre-buffered audio (instant)');
       wav = buffered;
+      cacheSynthResult(synthCacheKey, wav);
       preBufferedBlob = null;
       preBufferPromise = null;
       preBufferedKey = null;
     } else {
-      wav = await synthesizeFresh(text, vid);
+      wav = await synthesizeWithCache(text, vid);
     }
-  } else {
-    wav = await synthesizeFresh(text, vid);
+  }
+  // Priority 2: Check synthesis cache (e.g. resume after pause)
+  else if (synthCache.has(synthCacheKey)) {
+    wav = synthCache.get(synthCacheKey)!;
+    ttsLog('Using cached synthesis (instant resume)');
+  }
+  // Priority 3: Fresh synthesis
+  else {
+    wav = await synthesizeWithCache(text, vid);
   }
 
   ensureActivePlayback(token);
@@ -426,10 +463,18 @@ export async function piperSpeak(
   });
 }
 
-async function synthesizeFresh(text: string, vid: PiperVoiceId): Promise<Blob> {
+async function synthesizeWithCache(text: string, vid: PiperVoiceId): Promise<Blob> {
+  const cacheKey = getSynthCacheKey(text, vid);
+  const cached = synthCache.get(cacheKey);
+  if (cached) {
+    ttsLog(`Piper cache hit: ${text.length} chars`);
+    return cached;
+  }
   const session = await getSession(vid);
   ttsLog(`Piper predict: ${text.length} chars, voice=${vid}`);
-  return await session.predict(text);
+  const blob = await session.predict(text);
+  cacheSynthResult(cacheKey, blob);
+  return blob;
 }
 
 function cleanup() {
@@ -440,8 +485,8 @@ function cleanup() {
   currentAudio = null;
 }
 
-/** Stop current Piper playback */
-export function piperStop() {
+/** Stop current Piper playback. preservePreBuffer=true keeps pre-buffered next chunk (for pause). */
+export function piperStop(preservePreBuffer = false) {
   playbackToken++;
 
   // Reject pending promise first so the caller's await unblocks immediately
@@ -456,7 +501,10 @@ export function piperStop() {
     currentAudio.currentTime = 0;
     cleanup();
   }
-  clearPreBuffer();
+
+  if (!preservePreBuffer) {
+    clearPreBuffer();
+  }
 
   // Reject after cleanup to avoid re-entrant issues
   if (rejectFn) {
