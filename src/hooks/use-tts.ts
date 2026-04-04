@@ -391,12 +391,7 @@ export function useTTS() {
         speakChunkNative(chunkIndex + 1, gen);
       }
     } catch (e) {
-      // FIX #4: If paused, the stop() call caused this error — don't reset state
-      if (pausedRef.current) {
-        clearWordTimer();
-        return;
-      }
-      // FIX #1: Stale generation — ignore silently
+      // Stale generation (paused, stopped, or new speak session) — ignore silently
       if (gen !== generationRef.current) {
         clearWordTimer();
         return;
@@ -580,7 +575,8 @@ export function useTTS() {
         speakChunkPiper(nextChunkIdx, gen);
       }
     } catch (e) {
-      if (pausedRef.current || gen !== generationRef.current) {
+      // Stale generation (paused, stopped, or new speak session) — ignore silently
+      if (gen !== generationRef.current) {
         clearWordTimer();
         return;
       }
@@ -614,19 +610,14 @@ export function useTTS() {
   }, [speakChunkNative, speakChunkWeb, speakChunkPiper]);
 
   const cancelCurrentSpeech = useCallback(async (resetUi: boolean) => {
-    // FIX #1: Increment generation to invalidate all in-flight chunk callbacks
+    // Increment generation to invalidate all in-flight chunk callbacks
     generationRef.current++;
     speakingRef.current = false;
     pausedRef.current = false;
 
-    // nativeStop handles all engines: Capacitor plugin, Cloud TTS, and WebSpeech
-    // Also stop Piper if active
-    try {
-      piperStop();
-      await nativeStop();
-    } catch {
-      // ignore
-    }
+    // Stop all engines in parallel — don't let one block the other
+    piperStop();
+    const stopPromise = nativeStop().catch(() => {});
 
     clearWordTimer();
     chunksRef.current = [];
@@ -638,6 +629,9 @@ export function useTTS() {
       setProgress(0);
       setActiveCharIndex(-1);
     }
+
+    // Wait for stop to finish but don't block UI state reset
+    await stopPromise;
   }, [clearWordTimer]);
 
   const speakFromIndex = useCallback(async (text: string, startCharIndex = 0) => {
@@ -676,27 +670,29 @@ export function useTTS() {
     speakChunk(0, gen);
   }, [speakChunk, cancelCurrentSpeech]);
 
-  // FIX #4: Improved pause — stop via nativeStop which handles both Cloud and WebSpeech
+  // Improved pause — increment generation to kill in-flight async operations
   const pause = useCallback(() => {
+    // Increment generation FIRST to invalidate any in-flight chunk callbacks
+    generationRef.current++;
     pausedRef.current = true;
+    speakingRef.current = false;
     setIsPaused(true);
     clearWordTimer();
     updateMediaSessionPlaybackState('paused');
     piperStop();
-    // nativeStop handles both Cloud TTS (cloudStop) and WebSpeech (speechSynthesis.cancel)
     void nativeStop();
   }, [clearWordTimer]);
 
-  // FIX #4: Improved resume — properly restart with current generation
+  // Improved resume — new generation prevents stale callbacks from interfering
   const resume = useCallback(() => {
+    if (chunksRef.current.length === 0) return;
+    const gen = ++generationRef.current;
     pausedRef.current = false;
     speakingRef.current = true;
     setIsPaused(false);
+    setIsSpeaking(true);
     updateMediaSessionPlaybackState('playing');
-    // Restart from current chunk — nativeStop (called during pause) already
-    // stopped any active audio. speakChunkNative → nativeSpeak → cloudSpeak
-    // will create a new HTML Audio element for the next chunk.
-    speakChunk(currentChunkRef.current, generationRef.current);
+    speakChunk(currentChunkRef.current, gen);
   }, [speakChunk]);
 
   const stop = useCallback(async () => {
@@ -710,24 +706,30 @@ export function useTTS() {
     setIsLoading(true);
     try {
       const isPiper = getTTSEngine() === 'piper';
-      if (isPiper) {
-        void warmPiperVoice(getPiperVoice()).catch((error) => {
-          ttsError('[useTTS] Piper warm failed: ' + (error instanceof Error ? error.message : String(error)));
-        });
-      }
 
-      await Promise.all([
-        startForegroundService(),
-        acquireWakeLock(),
-      ]);
-      // Wire lock-screen media controls (web only)
+      // Wire lock-screen media controls synchronously (web only)
       setMediaSessionHandlers({
         onPause: () => pause(),
         onPlay: () => resume(),
         onStop: () => { void stop(); },
         onNextTrack: () => { onNextChapterRef.current?.(); },
       });
+
+      // Start playback IMMEDIATELY — don't wait for foreground service/wake lock
+      // These run in background and are not required for audio to start
+      const bgSetup = Promise.all([
+        startForegroundService().catch(e => ttsError('[useTTS] FG service failed: ' + String(e))),
+        acquireWakeLock().catch(e => ttsError('[useTTS] Wake lock failed: ' + String(e))),
+        isPiper
+          ? warmPiperVoice(getPiperVoice()).catch(e => ttsError('[useTTS] Piper warm failed: ' + String(e)))
+          : Promise.resolve(),
+      ]);
+
+      // Start speaking without waiting for background setup
       await speakFromIndex(text, 0);
+
+      // Ensure background setup completes (non-blocking for the user)
+      await bgSetup;
     } catch (e) {
       ttsError('[useTTS] speak() error: ' + (e instanceof Error ? e.message : String(e)));
       await releaseWakeLock();
