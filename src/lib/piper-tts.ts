@@ -249,6 +249,7 @@ async function pitchShiftBlob(wav: Blob, pitchFactor: number): Promise<Blob> {
 // Current audio element for stop control
 let currentAudio: HTMLAudioElement | null = null;
 let currentBlobUrl: string | null = null;
+let currentReject: ((reason: Error) => void) | null = null;
 
 // Pre-buffered next chunk
 let preBufferedBlob: Blob | null = null;
@@ -381,18 +382,22 @@ export async function piperSpeak(
   };
 
   return new Promise<{ engine: string }>((resolve, reject) => {
+    currentReject = reject;
     audio.onplaying = () => {
       queueNextChunk();
     };
     audio.onended = () => {
+      currentReject = null;
       cleanup();
       resolve({ engine: `piper:${vid}` });
     };
     audio.onerror = (e) => {
+      currentReject = null;
       cleanup();
       reject(new Error(`Piper audio playback error: ${e}`));
     };
     audio.play().catch((err) => {
+      currentReject = null;
       cleanup();
       reject(err);
     });
@@ -416,12 +421,24 @@ function cleanup() {
 
 /** Stop current Piper playback */
 export function piperStop() {
+  // Reject pending promise first so the caller's await unblocks immediately
+  const rejectFn = currentReject;
+  currentReject = null;
+
   if (currentAudio) {
+    currentAudio.onended = null;
+    currentAudio.onerror = null;
+    currentAudio.onplaying = null;
     currentAudio.pause();
     currentAudio.currentTime = 0;
     cleanup();
   }
   clearPreBuffer();
+
+  // Reject after cleanup to avoid re-entrant issues
+  if (rejectFn) {
+    rejectFn(new Error('Piper playback stopped by user'));
+  }
 }
 
 /** Check if Piper TTS is supported in this browser */
