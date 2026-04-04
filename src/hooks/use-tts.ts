@@ -553,6 +553,8 @@ export function useTTS() {
     try {
       const result = await piperSpeak(chunkText, getPiperVoice(), {
         nextText: nextChunkText,
+        rate: rateRef.current,
+        pitch: pitchRef.current,
       });
 
       if (chunkIndex === 0) {

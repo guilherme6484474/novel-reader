@@ -9,15 +9,44 @@
  */
 import { ttsLog, ttsError } from '@/lib/tts-debug-log';
 
-// Available Piper voices (subset — Portuguese + English)
+// Available Piper voices — multi-language selection
 export const PIPER_VOICES = [
+  // Portuguese
   { id: 'pt_BR-faber-medium', label: '🇧🇷 Faber (PT-BR)', lang: 'pt-BR' },
+  // English US
   { id: 'en_US-hfc_female-medium', label: '🇺🇸 Female (EN-US)', lang: 'en-US' },
   { id: 'en_US-lessac-medium', label: '🇺🇸 Lessac (EN-US)', lang: 'en-US' },
+  { id: 'en_US-amy-medium', label: '🇺🇸 Amy (EN-US)', lang: 'en-US' },
+  { id: 'en_US-danny-low', label: '🇺🇸 Danny (EN-US)', lang: 'en-US' },
+  { id: 'en_US-joe-medium', label: '🇺🇸 Joe (EN-US)', lang: 'en-US' },
+  { id: 'en_US-ryan-medium', label: '🇺🇸 Ryan (EN-US)', lang: 'en-US' },
+  { id: 'en_US-kusal-medium', label: '🇺🇸 Kusal (EN-US)', lang: 'en-US' },
+  // English GB
   { id: 'en_GB-alba-medium', label: '🇬🇧 Alba (EN-GB)', lang: 'en-GB' },
+  { id: 'en_GB-jenny_dioco-medium', label: '🇬🇧 Jenny (EN-GB)', lang: 'en-GB' },
+  { id: 'en_GB-northern_english_male-medium', label: '🇬🇧 Northern Male (EN-GB)', lang: 'en-GB' },
+  // Spanish
   { id: 'es_ES-sharvard-medium', label: '🇪🇸 Sharvard (ES)', lang: 'es-ES' },
+  { id: 'es_ES-davefx-medium', label: '🇪🇸 Dave (ES)', lang: 'es-ES' },
+  { id: 'es_MX-ald-medium', label: '🇲🇽 Ald (ES-MX)', lang: 'es-MX' },
+  // French
   { id: 'fr_FR-siwis-medium', label: '🇫🇷 Siwis (FR)', lang: 'fr-FR' },
+  { id: 'fr_FR-upmc-medium', label: '🇫🇷 UPMC (FR)', lang: 'fr-FR' },
+  // German
   { id: 'de_DE-thorsten-medium', label: '🇩🇪 Thorsten (DE)', lang: 'de-DE' },
+  { id: 'de_DE-eva_k-x_low', label: '🇩🇪 Eva (DE)', lang: 'de-DE' },
+  // Italian
+  { id: 'it_IT-riccardo-x_low', label: '🇮🇹 Riccardo (IT)', lang: 'it-IT' },
+  // Russian
+  { id: 'ru_RU-ruslan-medium', label: '🇷🇺 Ruslan (RU)', lang: 'ru-RU' },
+  // Dutch
+  { id: 'nl_NL-mls-medium', label: '🇳🇱 MLS (NL)', lang: 'nl-NL' },
+  // Norwegian
+  { id: 'no_NO-talesyntese-medium', label: '🇳🇴 Talesyntese (NO)', lang: 'no-NO' },
+  // Polish
+  { id: 'pl_PL-gosia-medium', label: '🇵🇱 Gosia (PL)', lang: 'pl-PL' },
+  // Ukrainian
+  { id: 'uk_UA-lada-x_low', label: '🇺🇦 Lada (UK)', lang: 'uk-UA' },
 ] as const;
 
 export type PiperVoiceId = (typeof PIPER_VOICES)[number]['id'];
@@ -26,6 +55,8 @@ type PiperModule = typeof import('@mintplex-labs/piper-tts-web');
 type PiperSession = Awaited<ReturnType<PiperModule['TtsSession']['create']>>;
 type PiperSpeakOptions = {
   nextText?: string;
+  rate?: number;   // playback speed (0.5–4.0, default 1)
+  pitch?: number;  // pitch factor (0.5–2.0, default 1)
 };
 
 const ORT_WASM_MJS_PATH = '/wasm/ort-wasm-simd-threaded.jsep.mjs';
@@ -143,6 +174,72 @@ export async function downloadPiperVoice(
   }
 }
 
+// ─── Pitch shifting via OfflineAudioContext ───
+
+let sharedAudioCtx: AudioContext | null = null;
+function getAudioContext(): AudioContext {
+  if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
+    sharedAudioCtx = new AudioContext();
+  }
+  return sharedAudioCtx;
+}
+
+/** Encode an AudioBuffer back to a WAV Blob */
+function audioBufferToWav(buffer: AudioBuffer): Blob {
+  const numCh = buffer.numberOfChannels;
+  const sr = buffer.sampleRate;
+  const bps = 16;
+  const blockAlign = numCh * (bps / 8);
+  const dataLen = buffer.length * blockAlign;
+  const buf = new ArrayBuffer(44 + dataLen);
+  const v = new DataView(buf);
+
+  const w = (off: number, s: string) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + dataLen, true); w(8, 'WAVE');
+  w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+  v.setUint16(22, numCh, true); v.setUint32(24, sr, true);
+  v.setUint32(28, sr * blockAlign, true); v.setUint16(32, blockAlign, true);
+  v.setUint16(34, bps, true); w(36, 'data'); v.setUint32(40, dataLen, true);
+
+  let off = 44;
+  for (let i = 0; i < buffer.length; i++) {
+    for (let ch = 0; ch < numCh; ch++) {
+      const s = Math.max(-1, Math.min(1, buffer.getChannelData(ch)[i]));
+      v.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      off += 2;
+    }
+  }
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
+/**
+ * Shift pitch of a WAV blob by pitchFactor (e.g. 1.2 = 20% higher).
+ * Uses OfflineAudioContext to render at modified rate, then re-encodes to WAV.
+ * The output has the same duration as the original (speed is preserved).
+ */
+async function pitchShiftBlob(wav: Blob, pitchFactor: number): Promise<Blob> {
+  const ctx = getAudioContext();
+  const arrayBuf = await wav.arrayBuffer();
+  const audioBuf = await ctx.decodeAudioData(arrayBuf);
+
+  // Render at modified playback rate → changes pitch AND duration
+  const newLength = Math.ceil(audioBuf.length / pitchFactor);
+  const offline = new OfflineAudioContext(
+    audioBuf.numberOfChannels,
+    newLength,
+    audioBuf.sampleRate,
+  );
+  const src = offline.createBufferSource();
+  src.buffer = audioBuf;
+  src.playbackRate.value = pitchFactor;
+  src.connect(offline.destination);
+  src.start();
+
+  const rendered = await offline.startRendering();
+  // Re-encode to WAV so HTMLAudioElement can play it with preservesPitch=true
+  return audioBufferToWav(rendered);
+}
+
 // ─── Audio playback with pre-buffering ───
 
 // Current audio element for stop control
@@ -215,7 +312,9 @@ function clearPreBuffer() {
 
 /**
  * Speak text using Piper TTS. Returns a promise that resolves when speech ends.
- * If a pre-buffered blob is available for this text, uses it instantly.
+ * Supports independent speed (rate) and pitch control.
+ * - rate: playback speed via HTMLAudioElement.playbackRate (preservesPitch=true)
+ * - pitch: offline pitch-shifting via OfflineAudioContext + WAV re-encoding
  */
 export async function piperSpeak(
   text: string,
@@ -225,6 +324,8 @@ export async function piperSpeak(
   const vid = (voiceId || getPiperVoice()) as PiperVoiceId;
   const requestedKey = getPreBufferKey(text, vid);
   const nextText = options?.nextText?.trim() ? options.nextText : undefined;
+  const rate = options?.rate ?? 1;
+  const pitch = options?.pitch ?? 1;
   let wav: Blob;
 
   // Check if we already pre-rendered this exact chunk
@@ -243,6 +344,13 @@ export async function piperSpeak(
     wav = await synthesizeFresh(text, vid);
   }
 
+  // Apply pitch shifting if needed (offline rendering)
+  const needsPitchShift = Math.abs(pitch - 1) > 0.05;
+  if (needsPitchShift) {
+    ttsLog(`Applying pitch shift: ${pitch.toFixed(2)}x`);
+    wav = await pitchShiftBlob(wav, pitch);
+  }
+
   // Clean up previous blob
   if (currentBlobUrl) {
     URL.revokeObjectURL(currentBlobUrl);
@@ -252,6 +360,12 @@ export async function piperSpeak(
   currentBlobUrl = URL.createObjectURL(wav);
   const audio = new Audio(currentBlobUrl);
   currentAudio = audio;
+
+  // Apply speed control (independent from pitch thanks to pitch-shifted WAV)
+  audio.playbackRate = rate;
+  (audio as any).preservesPitch = true;
+  (audio as any).mozPreservesPitch = true;
+  (audio as any).webkitPreservesPitch = true;
 
   let queuedNextChunk = false;
   const queueNextChunk = () => {
