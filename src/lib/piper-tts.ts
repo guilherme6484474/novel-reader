@@ -257,6 +257,13 @@ async function pitchShiftBlob(wav: Blob, pitchFactor: number): Promise<Blob> {
 let currentAudio: HTMLAudioElement | null = null;
 let currentBlobUrl: string | null = null;
 let currentReject: ((reason: Error) => void) | null = null;
+let playbackToken = 0;
+
+function ensureActivePlayback(token: number) {
+  if (token !== playbackToken) {
+    throw new Error('Piper playback cancelled');
+  }
+}
 
 // Pre-buffered next chunk
 let preBufferedBlob: Blob | null = null;
@@ -333,6 +340,7 @@ export async function piperSpeak(
   voiceId?: string,
   options?: PiperSpeakOptions,
 ): Promise<{ engine: string }> {
+  const token = ++playbackToken;
   const vid = (voiceId || getPiperVoice()) as PiperVoiceId;
   const requestedKey = getPreBufferKey(text, vid);
   const nextText = options?.nextText?.trim() ? options.nextText : undefined;
@@ -343,6 +351,7 @@ export async function piperSpeak(
   // Check if we already pre-rendered this exact chunk
   if (preBufferedKey === requestedKey && preBufferPromise) {
     const buffered = await preBufferPromise;
+    ensureActivePlayback(token);
     if (buffered && preBufferedKey === requestedKey) {
       ttsLog('Using pre-buffered audio (instant)');
       wav = buffered;
@@ -356,11 +365,14 @@ export async function piperSpeak(
     wav = await synthesizeFresh(text, vid);
   }
 
+  ensureActivePlayback(token);
+
   // Apply pitch shifting if needed (offline rendering)
   const needsPitchShift = Math.abs(pitch - 1) > 0.05;
   if (needsPitchShift) {
     ttsLog(`Applying pitch shift: ${pitch.toFixed(2)}x`);
     wav = await pitchShiftBlob(wav, pitch);
+    ensureActivePlayback(token);
   }
 
   // Clean up previous blob
@@ -372,6 +384,8 @@ export async function piperSpeak(
   currentBlobUrl = URL.createObjectURL(wav);
   const audio = new Audio(currentBlobUrl);
   currentAudio = audio;
+
+  ensureActivePlayback(token);
 
   // Apply speed control (independent from pitch thanks to pitch-shifted WAV)
   audio.playbackRate = rate;
@@ -428,6 +442,8 @@ function cleanup() {
 
 /** Stop current Piper playback */
 export function piperStop() {
+  playbackToken++;
+
   // Reject pending promise first so the caller's await unblocks immediately
   const rejectFn = currentReject;
   currentReject = null;
