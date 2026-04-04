@@ -61,25 +61,68 @@ const ChapterArticle = memo(function ChapterArticle({
   onClickWord: (charIndex: number) => void;
   fontSize: number;
 }) {
-  const activeRef = useRef<HTMLSpanElement>(null);
+  const activeParagraphRef = useRef<HTMLParagraphElement>(null);
+  const lastScrolledParagraphRef = useRef(-1);
   const prevParaCountRef = useRef(0);
-  useEffect(() => {
-    if (activeRef.current && isSpeaking) {
-      activeRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }, [activeCharIndex, isSpeaking]);
 
   const paragraphs = useMemo(() => {
-    const result: { text: string; globalStart: number }[] = [];
+    const result: {
+      text: string;
+      globalStart: number;
+      globalEnd: number;
+      tokens: { text: string; globalStart: number; isWord: boolean }[];
+    }[] = [];
     let offset = 0;
     for (const line of displayText.split('\n')) {
+      const lineStart = offset;
       if (line.trim()) {
-        result.push({ text: line, globalStart: offset });
+        const tokens: { text: string; globalStart: number; isWord: boolean }[] = [];
+        const regex = /\S+|\s+/g;
+        let match: RegExpExecArray | null;
+
+        while ((match = regex.exec(line)) !== null) {
+          tokens.push({
+            text: match[0],
+            globalStart: lineStart + match.index,
+            isWord: /\S/.test(match[0]),
+          });
+        }
+
+        result.push({
+          text: line,
+          globalStart: lineStart,
+          globalEnd: lineStart + line.length,
+          tokens,
+        });
       }
       offset += line.length + 1; // +1 for \n
     }
     return result;
   }, [displayText]);
+
+  const activeParagraphIndex = useMemo(() => {
+    if (!isSpeaking || activeCharIndex < 0) return -1;
+
+    return paragraphs.findIndex((para) => (
+      activeCharIndex >= para.globalStart && activeCharIndex < para.globalEnd
+    ));
+  }, [activeCharIndex, isSpeaking, paragraphs]);
+
+  useEffect(() => {
+    if (!isSpeaking) {
+      lastScrolledParagraphRef.current = -1;
+      return;
+    }
+
+    if (activeParagraphIndex < 0 || !activeParagraphRef.current) return;
+    if (lastScrolledParagraphRef.current === activeParagraphIndex) return;
+
+    lastScrolledParagraphRef.current = activeParagraphIndex;
+    activeParagraphRef.current.scrollIntoView({
+      behavior: activeParagraphIndex === 0 ? 'auto' : 'smooth',
+      block: 'center',
+    });
+  }, [activeParagraphIndex, isSpeaking]);
 
   const prevParaCount = prevParaCountRef.current;
   useEffect(() => { prevParaCountRef.current = paragraphs.length; }, [paragraphs.length]);
@@ -89,25 +132,21 @@ const ChapterArticle = memo(function ChapterArticle({
       {paragraphs.map((para, pi) => (
         <p
           key={pi}
+          ref={pi === activeParagraphIndex ? activeParagraphRef : undefined}
           className={`mb-4 leading-[1.85] text-foreground/85 ${pi >= prevParaCount ? 'animate-fade-in' : ''}`}
         >
-          {para.text.split(/(\s+)/).map((word, wi) => {
-            // Calculate this word's global char index
-            const localOffset = para.text.indexOf(word, 
-              para.text.split(/(\s+)/).slice(0, wi).join('').length
-            );
-            const globalIndex = para.globalStart + localOffset;
+          {para.tokens.map((token, wi) => {
+            if (!token.isWord) return <span key={wi}>{token.text}</span>;
 
-            if (!word.trim()) return <span key={wi}>{word}</span>;
+            const globalIndex = token.globalStart;
 
             const isActive = isSpeaking && activeCharIndex >= 0 &&
               globalIndex <= activeCharIndex &&
-              activeCharIndex < globalIndex + word.length;
+              activeCharIndex < globalIndex + token.text.length;
 
             return (
               <span
                 key={wi}
-                ref={isActive ? activeRef : undefined}
                 onClick={() => onClickWord(globalIndex)}
                 className={`cursor-pointer transition-colors duration-150 rounded-sm px-[1px] ${
                   isActive
@@ -117,7 +156,7 @@ const ChapterArticle = memo(function ChapterArticle({
                     : 'hover:bg-primary/10'
                 }`}
               >
-                {word}
+                {token.text}
               </span>
             );
           })}

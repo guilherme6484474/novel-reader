@@ -4,7 +4,7 @@ import { ttsLog, ttsError } from "@/lib/tts-debug-log";
 import { toast } from "sonner";
 import { acquireWakeLock, releaseWakeLock, setMediaSessionHandlers, updateMediaSessionPlaybackState } from "@/lib/keep-awake";
 import { startForegroundService, stopForegroundService } from "@/lib/foreground-service";
-import { piperSpeak, piperStop, getPiperVoice, warmPiperVoice } from "@/lib/piper-tts";
+import { piperSpeak, piperStop, getPiperVoice, warmPiperVoice, initPiperAudio } from "@/lib/piper-tts";
 
 import { getTTSEngine } from "@/lib/native-tts";
 
@@ -12,7 +12,8 @@ import { getTTSEngine } from "@/lib/native-tts";
 const MAX_CHUNK_CLOUD = 4000; // Google Cloud TTS supports up to 5000 chars
 const MAX_CHUNK_WEBSPEECH = 200; // WebSpeech works best with short utterances
 const MAX_CHUNK_PIPER_INITIAL = 140; // Piper: start faster with a smaller first chunk
-const MAX_CHUNK_PIPER = 420; // Then use larger chunks to reduce gaps between paragraphs
+const MAX_CHUNK_PIPER = 420; // Browser-safe chunk size for Piper
+const MAX_CHUNK_PIPER_NATIVE = 900; // Fewer chunk transitions when the screen is off on Android
 
 function getMaxChunkChars(): number {
   const engine = getTTSEngine();
@@ -76,7 +77,8 @@ function splitTextForPlayback(text: string): string[] {
   const remainingText = text.slice(firstChunk.length);
   if (!remainingText.trim()) return [firstChunk];
 
-  return [firstChunk, ...splitIntoSentences(remainingText, MAX_CHUNK_PIPER)];
+  const followUpChunkSize = isNative() ? MAX_CHUNK_PIPER_NATIVE : MAX_CHUNK_PIPER;
+  return [firstChunk, ...splitIntoSentences(remainingText, followUpChunkSize)];
 }
 
 function buildWordMap(text: string): { word: string; start: number }[] {
@@ -144,6 +146,7 @@ export function useTTS() {
   const calibratedCpsRef = useRef(Number(localStorage.getItem('nr-ttsCps')) || 0);
   const calibratedRateRef = useRef(Number(localStorage.getItem('nr-ttsCpsRate')) || 1);
   const installPromptShownRef = useRef(false);
+  const lastUiUpdateRef = useRef({ ts: 0, charIndex: -1 });
 
   // FIX #1: Generation counter to prevent race conditions
   const generationRef = useRef(0);
@@ -266,7 +269,23 @@ export function useTTS() {
     }
   }, []);
 
-  const updatePosition = useCallback((globalCharIndex: number) => {
+  const updatePosition = useCallback((globalCharIndex: number, force = false) => {
+    if (!force && getTTSEngine() === 'piper') {
+      const now = Date.now();
+      const hidden = typeof document !== 'undefined' && document.visibilityState !== 'visible';
+      const minInterval = hidden ? 450 : 120;
+      const minDelta = hidden ? 80 : 18;
+      const charDelta = Math.abs(globalCharIndex - lastUiUpdateRef.current.charIndex);
+
+      if (now - lastUiUpdateRef.current.ts < minInterval && charDelta < minDelta) {
+        return;
+      }
+
+      lastUiUpdateRef.current = { ts: now, charIndex: globalCharIndex };
+    } else {
+      lastUiUpdateRef.current = { ts: Date.now(), charIndex: globalCharIndex };
+    }
+
     setActiveCharIndex(globalCharIndex);
     const totalLen = textRef.current.length;
     if (totalLen > 0) setProgress((globalCharIndex / totalLen) * 100);
@@ -436,6 +455,9 @@ export function useTTS() {
       setProgress(100);
       setActiveCharIndex(-1);
       clearWordTimer();
+      updateMediaSessionPlaybackState('none');
+      void releaseWakeLock();
+      void stopForegroundService();
       onEndCallbackRef.current?.();
       return;
     }
@@ -551,9 +573,13 @@ export function useTTS() {
     const globalOffset = offsets[chunkIndex];
     currentChunkRef.current = chunkIndex;
 
-    updatePosition(globalOffset);
+    updatePosition(globalOffset, true);
     chunkStartTimeRef.current = performance.now();
-    startWordStepper(chunkText, globalOffset, rateRef.current);
+    if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+      startWordStepper(chunkText, globalOffset, rateRef.current);
+    } else {
+      clearWordTimer();
+    }
 
     const nextChunkIdx = chunkIndex + 1;
     const nextChunkText = nextChunkIdx < chunks.length ? chunks[nextChunkIdx] : undefined;
@@ -593,6 +619,9 @@ export function useTTS() {
       setIsSpeaking(false);
       setIsPaused(false);
       setActiveCharIndex(-1);
+      updateMediaSessionPlaybackState('none');
+      void releaseWakeLock();
+      void stopForegroundService();
     }
   }, [clearWordTimer, updatePosition, startWordStepper]);
 
@@ -614,6 +643,7 @@ export function useTTS() {
     generationRef.current++;
     speakingRef.current = false;
     pausedRef.current = false;
+    lastUiUpdateRef.current = { ts: 0, charIndex: -1 };
 
     // Stop all engines in parallel — don't let one block the other
     piperStop();
@@ -635,6 +665,10 @@ export function useTTS() {
   }, [clearWordTimer]);
 
   const speakFromIndex = useCallback(async (text: string, startCharIndex = 0) => {
+    if (getTTSEngine() === 'piper') {
+      initPiperAudio();
+    }
+
     await cancelCurrentSpeech(false);
 
     const textToSpeak = text.slice(startCharIndex);
@@ -661,6 +695,7 @@ export function useTTS() {
 
     // FIX #1: New generation for this speak session
     const gen = ++generationRef.current;
+    lastUiUpdateRef.current = { ts: 0, charIndex: -1 };
     speakingRef.current = true;
     pausedRef.current = false;
     setIsSpeaking(true);
@@ -686,6 +721,9 @@ export function useTTS() {
   // Improved resume — new generation prevents stale callbacks from interfering
   const resume = useCallback(() => {
     if (chunksRef.current.length === 0) return;
+    if (getTTSEngine() === 'piper') {
+      initPiperAudio();
+    }
     const gen = ++generationRef.current;
     pausedRef.current = false;
     speakingRef.current = true;
@@ -703,6 +741,9 @@ export function useTTS() {
 
   const speak = useCallback(async (text: string) => {
     ttsLog('[useTTS] speak() called, textLen=' + text.length);
+    if (getTTSEngine() === 'piper') {
+      initPiperAudio();
+    }
     setIsLoading(true);
     try {
       const isPiper = getTTSEngine() === 'piper';
