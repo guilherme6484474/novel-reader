@@ -5,10 +5,14 @@ import { toast } from "sonner";
 import { acquireWakeLock, releaseWakeLock, setMediaSessionHandlers, updateMediaSessionPlaybackState } from "@/lib/keep-awake";
 import { startForegroundService, stopForegroundService } from "@/lib/foreground-service";
 
-// Large chunks for Cloud TTS (used on both native and web for background playback)
+import { getTTSEngine } from "@/lib/native-tts";
+
+// Chunk sizes per engine
 const MAX_CHUNK_CLOUD = 4000; // Google Cloud TTS supports up to 5000 chars
+const MAX_CHUNK_WEBSPEECH = 200; // WebSpeech works best with short utterances
 
 function getMaxChunkChars(): number {
+  if (!isNative() && getTTSEngine() === 'webspeech') return MAX_CHUNK_WEBSPEECH;
   return MAX_CHUNK_CLOUD;
 }
 
