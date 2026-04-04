@@ -395,10 +395,6 @@ export async function piperSpeak(
     queueMicrotask(queueNextChunk);
   });
 }
-    });
-    queueMicrotask(queueNextChunk);
-  });
-}
 
 async function synthesizeFresh(text: string, vid: PiperVoiceId): Promise<Blob> {
   const session = await getSession(vid);
