@@ -515,7 +515,7 @@ export function useTTS() {
 
     if (typeof speechSynthesis === 'undefined') return;
     speechSynthesis.speak(utterance);
-  }, [clearWordTimer, updatePosition, startWordStepper]);
+  }, [clearWordTimer, updatePosition, startWordStepper, speakChunkNative]);
 
   // ─── Unified speak function ───
   // Routes to the correct speaker based on engine preference:
