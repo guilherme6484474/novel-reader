@@ -24,6 +24,9 @@ export type PiperVoiceId = (typeof PIPER_VOICES)[number]['id'];
 
 type PiperModule = typeof import('@mintplex-labs/piper-tts-web');
 type PiperSession = Awaited<ReturnType<PiperModule['TtsSession']['create']>>;
+type PiperSpeakOptions = {
+  nextText?: string;
+};
 
 const ORT_WASM_MJS_PATH = '/wasm/ort-wasm-simd-threaded.jsep.mjs';
 const ORT_WASM_BINARY_PATH = '/wasm/ort-wasm-simd-threaded.jsep.wasm';
@@ -44,6 +47,10 @@ let modulePromise: Promise<PiperModule> | null = null;
 let sessionPromise: Promise<PiperSession> | null = null;
 let sessionVoiceId: PiperVoiceId | null = null;
 let downloadingVoice: string | null = null;
+
+function getPreBufferKey(text: string, voiceId: PiperVoiceId): string {
+  return `${voiceId}::${text}`;
+}
 
 // Lazy-load the Piper module (cached after first call)
 async function getModule(): Promise<PiperModule> {
@@ -66,6 +73,14 @@ export function preloadPiperModule(): void {
   if (ttsModule || modulePromise) return;
   ttsLog('Pre-loading Piper WASM module in background...');
   getModule().catch(e => ttsError(`Piper pre-load failed: ${e}`));
+}
+
+/** Warm the selected voice session so first playback starts faster. */
+export async function warmPiperVoice(voiceId?: string): Promise<void> {
+  const vid = (voiceId || getPiperVoice()) as PiperVoiceId;
+  ttsLog(`Warming Piper voice session for ${vid}`);
+  await getSession(vid);
+  ttsLog(`Piper voice ready: ${vid}`);
 }
 
 async function getSession(voiceId: PiperVoiceId): Promise<PiperSession> {
@@ -138,6 +153,7 @@ let currentBlobUrl: string | null = null;
 let preBufferedBlob: Blob | null = null;
 let preBufferedBlobUrl: string | null = null;
 let preBufferPromise: Promise<Blob | null> | null = null;
+let preBufferedKey: string | null = null;
 
 /**
  * Synthesize text to a WAV Blob without playing it.
@@ -158,15 +174,30 @@ export async function piperSynthesize(
  * Call this right after starting playback of the current chunk.
  */
 export function piperPreBuffer(text: string, voiceId?: string): void {
-  // Clear any previous pre-buffer
+  if (!text.trim()) return;
+
+  const vid = (voiceId || getPiperVoice()) as PiperVoiceId;
+  const key = getPreBufferKey(text, vid);
+
+  if (preBufferedKey === key && preBufferPromise) {
+    return;
+  }
+
   clearPreBuffer();
-  preBufferPromise = piperSynthesize(text, voiceId)
+  preBufferedKey = key;
+  preBufferPromise = piperSynthesize(text, vid)
     .then(blob => {
+      if (preBufferedKey !== key) return null;
       preBufferedBlob = blob;
       ttsLog(`Pre-buffered ${text.length} chars ready`);
       return blob;
     })
     .catch(e => {
+      if (preBufferedKey === key) {
+        preBufferedKey = null;
+        preBufferedBlob = null;
+        preBufferPromise = null;
+      }
       ttsError(`Pre-buffer failed: ${e}`);
       return null;
     });
@@ -179,6 +210,7 @@ function clearPreBuffer() {
   }
   preBufferedBlob = null;
   preBufferPromise = null;
+  preBufferedKey = null;
 }
 
 /**
@@ -188,18 +220,22 @@ function clearPreBuffer() {
 export async function piperSpeak(
   text: string,
   voiceId?: string,
+  options?: PiperSpeakOptions,
 ): Promise<{ engine: string }> {
   const vid = (voiceId || getPiperVoice()) as PiperVoiceId;
+  const requestedKey = getPreBufferKey(text, vid);
+  const nextText = options?.nextText?.trim() ? options.nextText : undefined;
   let wav: Blob;
 
-  // Check if we have a pre-buffered result
-  if (preBufferedBlob && preBufferPromise) {
+  // Check if we already pre-rendered this exact chunk
+  if (preBufferedKey === requestedKey && preBufferPromise) {
     const buffered = await preBufferPromise;
-    if (buffered && preBufferedBlob === buffered) {
+    if (buffered && preBufferedKey === requestedKey) {
       ttsLog('Using pre-buffered audio (instant)');
       wav = buffered;
       preBufferedBlob = null;
       preBufferPromise = null;
+      preBufferedKey = null;
     } else {
       wav = await synthesizeFresh(text, vid);
     }
@@ -217,7 +253,19 @@ export async function piperSpeak(
   const audio = new Audio(currentBlobUrl);
   currentAudio = audio;
 
+  let queuedNextChunk = false;
+  const queueNextChunk = () => {
+    if (queuedNextChunk) return;
+    queuedNextChunk = true;
+    if (nextText) {
+      piperPreBuffer(nextText, vid);
+    }
+  };
+
   return new Promise<{ engine: string }>((resolve, reject) => {
+    audio.onplaying = () => {
+      queueNextChunk();
+    };
     audio.onended = () => {
       cleanup();
       resolve({ engine: `piper:${vid}` });
@@ -230,6 +278,7 @@ export async function piperSpeak(
       cleanup();
       reject(err);
     });
+    queueMicrotask(queueNextChunk);
   });
 }
 
