@@ -3,18 +3,7 @@
  * Uses @mintplex-labs/piper-tts-web (ONNX Runtime + Piper models).
  * Models are downloaded once and cached in Origin Private File System.
  */
-import { ttsLog, ttsWarn, ttsError } from '@/lib/tts-debug-log';
-
-// Configure ONNX Runtime WASM path before any import
-async function configureOrt() {
-  try {
-    const ort = await import('onnxruntime-web');
-    ort.env.wasm.wasmPaths = '/wasm/';
-    ttsLog('ONNX Runtime WASM paths configured to /wasm/');
-  } catch (e) {
-    ttsWarn('Could not configure ONNX Runtime: ' + String(e));
-  }
-}
+import { ttsLog, ttsError } from '@/lib/tts-debug-log';
 
 // Available Piper voices (subset — Portuguese + English)
 export const PIPER_VOICES = [
@@ -29,18 +18,60 @@ export const PIPER_VOICES = [
 
 export type PiperVoiceId = (typeof PIPER_VOICES)[number]['id'];
 
-let ttsModule: typeof import('@mintplex-labs/piper-tts-web') | null = null;
+type PiperModule = typeof import('@mintplex-labs/piper-tts-web');
+type PiperSession = Awaited<ReturnType<PiperModule['TtsSession']['create']>>;
+
+const ORT_WASM_MJS_PATH = '/wasm/ort-wasm-simd-threaded.jsep.mjs';
+const ORT_WASM_BINARY_PATH = '/wasm/ort-wasm-simd-threaded.jsep.wasm';
+const PIPER_PHONEMIZE_WASM_PATH = '/wasm/piper_phonemize.wasm';
+const PIPER_PHONEMIZE_DATA_PATH = '/wasm/piper_phonemize.data';
+
+const PIPER_RUNTIME_PATHS = {
+  onnxWasm: {
+    mjs: ORT_WASM_MJS_PATH,
+    wasm: ORT_WASM_BINARY_PATH,
+  } as unknown as string,
+  piperData: PIPER_PHONEMIZE_DATA_PATH,
+  piperWasm: PIPER_PHONEMIZE_WASM_PATH,
+};
+
+let ttsModule: PiperModule | null = null;
+let sessionPromise: Promise<PiperSession> | null = null;
+let sessionVoiceId: PiperVoiceId | null = null;
 let downloadingVoice: string | null = null;
 
-// Lazy-load the WASM module
+// Lazy-load the Piper module
 async function getModule() {
   if (ttsModule) return ttsModule;
-  // Must configure ORT paths before piper-tts-web imports it
-  await configureOrt();
   ttsLog('Loading Piper TTS WASM module...');
   ttsModule = await import('@mintplex-labs/piper-tts-web');
   ttsLog('Piper TTS WASM module loaded');
   return ttsModule;
+}
+
+async function getSession(voiceId: PiperVoiceId): Promise<PiperSession> {
+  const mod = await getModule();
+
+  if (sessionPromise && sessionVoiceId === voiceId) {
+    return sessionPromise;
+  }
+
+  sessionVoiceId = voiceId;
+  mod.TtsSession._instance = null;
+
+  ttsLog(`Creating Piper session with local runtime assets for ${voiceId}`);
+
+  sessionPromise = mod.TtsSession.create({
+    voiceId,
+    wasmPaths: PIPER_RUNTIME_PATHS as any,
+    logger: (msg) => ttsLog(`[Piper] ${msg}`),
+  }).catch((error) => {
+    sessionPromise = null;
+    sessionVoiceId = null;
+    throw error;
+  });
+
+  return sessionPromise;
 }
 
 /** Get stored Piper voice preference */
@@ -89,11 +120,11 @@ export async function piperSpeak(
   text: string,
   voiceId?: string,
 ): Promise<{ engine: string }> {
-  const vid = voiceId || getPiperVoice();
-  const mod = await getModule();
+  const vid = (voiceId || getPiperVoice()) as PiperVoiceId;
+  const session = await getSession(vid);
 
   ttsLog(`Piper predict: ${text.length} chars, voice=${vid}`);
-  const wav = await mod.predict({ text, voiceId: vid });
+  const wav = await session.predict(text);
 
   // Clean up previous blob
   if (currentBlobUrl) {
