@@ -674,27 +674,29 @@ export function useTTS() {
     speakChunk(0, gen);
   }, [speakChunk, cancelCurrentSpeech]);
 
-  // FIX #4: Improved pause — stop via nativeStop which handles both Cloud and WebSpeech
+  // Improved pause — increment generation to kill in-flight async operations
   const pause = useCallback(() => {
+    // Increment generation FIRST to invalidate any in-flight chunk callbacks
+    generationRef.current++;
     pausedRef.current = true;
+    speakingRef.current = false;
     setIsPaused(true);
     clearWordTimer();
     updateMediaSessionPlaybackState('paused');
     piperStop();
-    // nativeStop handles both Cloud TTS (cloudStop) and WebSpeech (speechSynthesis.cancel)
     void nativeStop();
   }, [clearWordTimer]);
 
-  // FIX #4: Improved resume — properly restart with current generation
+  // Improved resume — new generation prevents stale callbacks from interfering
   const resume = useCallback(() => {
+    if (chunksRef.current.length === 0) return;
+    const gen = ++generationRef.current;
     pausedRef.current = false;
     speakingRef.current = true;
     setIsPaused(false);
+    setIsSpeaking(true);
     updateMediaSessionPlaybackState('playing');
-    // Restart from current chunk — nativeStop (called during pause) already
-    // stopped any active audio. speakChunkNative → nativeSpeak → cloudSpeak
-    // will create a new HTML Audio element for the next chunk.
-    speakChunk(currentChunkRef.current, generationRef.current);
+    speakChunk(currentChunkRef.current, gen);
   }, [speakChunk]);
 
   const stop = useCallback(async () => {
