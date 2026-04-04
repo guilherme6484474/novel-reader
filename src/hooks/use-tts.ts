@@ -522,6 +522,7 @@ export function useTTS() {
   }, [clearWordTimer, updatePosition, startWordStepper, speakChunkNative]);
 
   // ─── Piper TTS chunk speaker (offline WASM) ───
+  // Optimized with pre-buffering: synthesizes next chunk while current plays
   const speakChunkPiper = useCallback(async (chunkIndex: number, gen: number) => {
     if (!speakingRef.current || gen !== generationRef.current) return;
     const chunks = chunksRef.current;
@@ -546,6 +547,12 @@ export function useTTS() {
     chunkStartTimeRef.current = performance.now();
     startWordStepper(chunkText, globalOffset, rateRef.current);
 
+    // Start pre-buffering the NEXT chunk immediately (runs in parallel with playback)
+    const nextChunkIdx = chunkIndex + 1;
+    if (nextChunkIdx < chunks.length) {
+      piperPreBuffer(chunks[nextChunkIdx], getPiperVoice());
+    }
+
     try {
       const result = await piperSpeak(chunkText, getPiperVoice());
 
@@ -556,7 +563,7 @@ export function useTTS() {
       clearWordTimer();
 
       if (speakingRef.current && gen === generationRef.current && !pausedRef.current) {
-        speakChunkPiper(chunkIndex + 1, gen);
+        speakChunkPiper(nextChunkIdx, gen);
       }
     } catch (e) {
       if (pausedRef.current || gen !== generationRef.current) {
