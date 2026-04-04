@@ -710,24 +710,30 @@ export function useTTS() {
     setIsLoading(true);
     try {
       const isPiper = getTTSEngine() === 'piper';
-      if (isPiper) {
-        void warmPiperVoice(getPiperVoice()).catch((error) => {
-          ttsError('[useTTS] Piper warm failed: ' + (error instanceof Error ? error.message : String(error)));
-        });
-      }
 
-      await Promise.all([
-        startForegroundService(),
-        acquireWakeLock(),
-      ]);
-      // Wire lock-screen media controls (web only)
+      // Wire lock-screen media controls synchronously (web only)
       setMediaSessionHandlers({
         onPause: () => pause(),
         onPlay: () => resume(),
         onStop: () => { void stop(); },
         onNextTrack: () => { onNextChapterRef.current?.(); },
       });
+
+      // Start playback IMMEDIATELY — don't wait for foreground service/wake lock
+      // These run in background and are not required for audio to start
+      const bgSetup = Promise.all([
+        startForegroundService().catch(e => ttsError('[useTTS] FG service failed: ' + String(e))),
+        acquireWakeLock().catch(e => ttsError('[useTTS] Wake lock failed: ' + String(e))),
+        isPiper
+          ? warmPiperVoice(getPiperVoice()).catch(e => ttsError('[useTTS] Piper warm failed: ' + String(e)))
+          : Promise.resolve(),
+      ]);
+
+      // Start speaking without waiting for background setup
       await speakFromIndex(text, 0);
+
+      // Ensure background setup completes (non-blocking for the user)
+      await bgSetup;
     } catch (e) {
       ttsError('[useTTS] speak() error: ' + (e instanceof Error ? e.message : String(e)));
       await releaseWakeLock();
