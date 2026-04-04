@@ -148,6 +148,9 @@ const Index = () => {
   const [audioMode, setAudioModeState] = useState<AudioPlaybackMode>(getAudioMode);
   const [cloudVoice, setCloudVoiceState] = useState(getCloudVoice);
   const [ttsEngine, setTtsEngineState] = useState<TTSEnginePreference>(getTTSEngine);
+  const [piperVoice, setPiperVoiceState] = useState<PiperVoiceId>(getPiperVoice);
+  const [piperDownloading, setPiperDownloading] = useState(false);
+  const [piperProgress, setPiperProgress] = useState(0);
   const autoReadRef = useRef(autoRead);
   const tts = useTTS();
   const { isAdmin } = useIsAdmin();
