@@ -391,12 +391,7 @@ export function useTTS() {
         speakChunkNative(chunkIndex + 1, gen);
       }
     } catch (e) {
-      // FIX #4: If paused, the stop() call caused this error — don't reset state
-      if (pausedRef.current) {
-        clearWordTimer();
-        return;
-      }
-      // FIX #1: Stale generation — ignore silently
+      // Stale generation (paused, stopped, or new speak session) — ignore silently
       if (gen !== generationRef.current) {
         clearWordTimer();
         return;
