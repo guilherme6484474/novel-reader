@@ -485,21 +485,37 @@ export function useTTS() {
       if (gen !== generationRef.current || e.error === 'canceled' || e.error === 'interrupted') return;
       clearWordTimer();
 
-      // FIX #5: Show user-facing error
-      toast.error("Erro no motor de voz (Web)", {
-        description: e.error || "Erro desconhecido",
-        duration: 5000,
-      });
+      const errorMsg = e.error || "unknown";
+      ttsError(`WebSpeech chunk ${chunkIndex} error: ${errorMsg}`);
 
-      speakingRef.current = false;
-      setIsSpeaking(false);
-      setIsPaused(false);
-      setActiveCharIndex(-1);
+      // Auto-retry once, then fallback to Cloud TTS
+      const retryKey = `ws-retry-${gen}-${chunkIndex}`;
+      const alreadyRetried = (window as any)[retryKey];
+      if (!alreadyRetried) {
+        (window as any)[retryKey] = true;
+        ttsLog(`Retrying WebSpeech chunk ${chunkIndex}...`);
+        setTimeout(() => {
+          if (gen === generationRef.current && speakingRef.current) {
+            speechSynthesis.cancel();
+            speakChunkWeb(chunkIndex, gen);
+          }
+        }, 300);
+        return;
+      }
+
+      // Retry failed — fallback to Cloud TTS for remaining chunks
+      ttsLog(`WebSpeech failed after retry, falling back to Cloud TTS`);
+      toast.info("Web Speech falhou no celular, usando Cloud TTS", {
+        description: "O motor de voz local não é estável neste dispositivo.",
+        duration: 4000,
+      });
+      speechSynthesis.cancel();
+      speakChunkNative(chunkIndex, gen);
     };
 
     if (typeof speechSynthesis === 'undefined') return;
     speechSynthesis.speak(utterance);
-  }, [clearWordTimer, updatePosition, startWordStepper]);
+  }, [clearWordTimer, updatePosition, startWordStepper, speakChunkNative]);
 
   // ─── Unified speak function ───
   // Routes to the correct speaker based on engine preference:
