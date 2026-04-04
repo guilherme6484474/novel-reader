@@ -614,19 +614,14 @@ export function useTTS() {
   }, [speakChunkNative, speakChunkWeb, speakChunkPiper]);
 
   const cancelCurrentSpeech = useCallback(async (resetUi: boolean) => {
-    // FIX #1: Increment generation to invalidate all in-flight chunk callbacks
+    // Increment generation to invalidate all in-flight chunk callbacks
     generationRef.current++;
     speakingRef.current = false;
     pausedRef.current = false;
 
-    // nativeStop handles all engines: Capacitor plugin, Cloud TTS, and WebSpeech
-    // Also stop Piper if active
-    try {
-      piperStop();
-      await nativeStop();
-    } catch {
-      // ignore
-    }
+    // Stop all engines in parallel — don't let one block the other
+    piperStop();
+    const stopPromise = nativeStop().catch(() => {});
 
     clearWordTimer();
     chunksRef.current = [];
@@ -638,6 +633,9 @@ export function useTTS() {
       setProgress(0);
       setActiveCharIndex(-1);
     }
+
+    // Wait for stop to finish but don't block UI state reset
+    await stopPromise;
   }, [clearWordTimer]);
 
   const speakFromIndex = useCallback(async (text: string, startCharIndex = 0) => {
