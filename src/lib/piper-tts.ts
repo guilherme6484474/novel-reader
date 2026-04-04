@@ -9,15 +9,44 @@
  */
 import { ttsLog, ttsError } from '@/lib/tts-debug-log';
 
-// Available Piper voices (subset — Portuguese + English)
+// Available Piper voices — multi-language selection
 export const PIPER_VOICES = [
+  // Portuguese
   { id: 'pt_BR-faber-medium', label: '🇧🇷 Faber (PT-BR)', lang: 'pt-BR' },
+  // English US
   { id: 'en_US-hfc_female-medium', label: '🇺🇸 Female (EN-US)', lang: 'en-US' },
   { id: 'en_US-lessac-medium', label: '🇺🇸 Lessac (EN-US)', lang: 'en-US' },
+  { id: 'en_US-amy-medium', label: '🇺🇸 Amy (EN-US)', lang: 'en-US' },
+  { id: 'en_US-danny-low', label: '🇺🇸 Danny (EN-US)', lang: 'en-US' },
+  { id: 'en_US-joe-medium', label: '🇺🇸 Joe (EN-US)', lang: 'en-US' },
+  { id: 'en_US-ryan-medium', label: '🇺🇸 Ryan (EN-US)', lang: 'en-US' },
+  { id: 'en_US-kusal-medium', label: '🇺🇸 Kusal (EN-US)', lang: 'en-US' },
+  // English GB
   { id: 'en_GB-alba-medium', label: '🇬🇧 Alba (EN-GB)', lang: 'en-GB' },
+  { id: 'en_GB-jenny_dioco-medium', label: '🇬🇧 Jenny (EN-GB)', lang: 'en-GB' },
+  { id: 'en_GB-northern_english_male-medium', label: '🇬🇧 Northern Male (EN-GB)', lang: 'en-GB' },
+  // Spanish
   { id: 'es_ES-sharvard-medium', label: '🇪🇸 Sharvard (ES)', lang: 'es-ES' },
+  { id: 'es_ES-davefx-medium', label: '🇪🇸 Dave (ES)', lang: 'es-ES' },
+  { id: 'es_MX-ald-medium', label: '🇲🇽 Ald (ES-MX)', lang: 'es-MX' },
+  // French
   { id: 'fr_FR-siwis-medium', label: '🇫🇷 Siwis (FR)', lang: 'fr-FR' },
+  { id: 'fr_FR-upmc-medium', label: '🇫🇷 UPMC (FR)', lang: 'fr-FR' },
+  // German
   { id: 'de_DE-thorsten-medium', label: '🇩🇪 Thorsten (DE)', lang: 'de-DE' },
+  { id: 'de_DE-eva_k-x_low', label: '🇩🇪 Eva (DE)', lang: 'de-DE' },
+  // Italian
+  { id: 'it_IT-riccardo-x_low', label: '🇮🇹 Riccardo (IT)', lang: 'it-IT' },
+  // Russian
+  { id: 'ru_RU-ruslan-medium', label: '🇷🇺 Ruslan (RU)', lang: 'ru-RU' },
+  // Dutch
+  { id: 'nl_NL-mls-medium', label: '🇳🇱 MLS (NL)', lang: 'nl-NL' },
+  // Norwegian
+  { id: 'no_NO-talesyntese-medium', label: '🇳🇴 Talesyntese (NO)', lang: 'no-NO' },
+  // Polish
+  { id: 'pl_PL-gosia-medium', label: '🇵🇱 Gosia (PL)', lang: 'pl-PL' },
+  // Ukrainian
+  { id: 'uk_UA-lada-x_low', label: '🇺🇦 Lada (UK)', lang: 'uk-UA' },
 ] as const;
 
 export type PiperVoiceId = (typeof PIPER_VOICES)[number]['id'];
