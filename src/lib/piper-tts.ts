@@ -11,8 +11,12 @@ import { ttsLog, ttsError } from '@/lib/tts-debug-log';
 
 // Available Piper voices — multi-language selection
 export const PIPER_VOICES = [
-  // Portuguese
+  // Portuguese - Brazil
   { id: 'pt_BR-faber-medium', label: '🇧🇷 Faber (PT-BR)', lang: 'pt-BR' },
+  { id: 'pt_BR-edresson-low', label: '🇧🇷 Edresson (PT-BR)', lang: 'pt-BR' },
+  { id: 'pt_BR-cadu-medium', label: '🇧🇷 Cadu (PT-BR)', lang: 'pt-BR' },
+  // Portuguese - Portugal
+  { id: 'pt_PT-tugão-medium', label: '🇵🇹 Tugão (PT-PT)', lang: 'pt-PT' },
   // English US
   { id: 'en_US-hfc_female-medium', label: '🇺🇸 Female (EN-US)', lang: 'en-US' },
   { id: 'en_US-lessac-medium', label: '🇺🇸 Lessac (EN-US)', lang: 'en-US' },
