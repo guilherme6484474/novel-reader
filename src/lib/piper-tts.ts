@@ -5,6 +5,17 @@
  */
 import { ttsLog, ttsWarn, ttsError } from '@/lib/tts-debug-log';
 
+// Configure ONNX Runtime WASM path before any import
+async function configureOrt() {
+  try {
+    const ort = await import('onnxruntime-web');
+    ort.env.wasm.wasmPaths = '/wasm/';
+    ttsLog('ONNX Runtime WASM paths configured to /wasm/');
+  } catch (e) {
+    ttsWarn('Could not configure ONNX Runtime: ' + String(e));
+  }
+}
+
 // Available Piper voices (subset — Portuguese + English)
 export const PIPER_VOICES = [
   { id: 'pt_BR-faber-medium', label: '🇧🇷 Faber (PT-BR)', lang: 'pt-BR' },
@@ -24,6 +35,8 @@ let downloadingVoice: string | null = null;
 // Lazy-load the WASM module
 async function getModule() {
   if (ttsModule) return ttsModule;
+  // Must configure ORT paths before piper-tts-web imports it
+  await configureOrt();
   ttsLog('Loading Piper TTS WASM module...');
   ttsModule = await import('@mintplex-labs/piper-tts-web');
   ttsLog('Piper TTS WASM module loaded');
