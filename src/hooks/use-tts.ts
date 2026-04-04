@@ -682,6 +682,7 @@ export function useTTS() {
     setIsPaused(true);
     clearWordTimer();
     updateMediaSessionPlaybackState('paused');
+    piperStop();
     // nativeStop handles both Cloud TTS (cloudStop) and WebSpeech (speechSynthesis.cancel)
     void nativeStop();
   }, [clearWordTimer]);
