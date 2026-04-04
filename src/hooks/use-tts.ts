@@ -599,7 +599,9 @@ export function useTTS() {
     pausedRef.current = false;
 
     // nativeStop handles all engines: Capacitor plugin, Cloud TTS, and WebSpeech
+    // Also stop Piper if active
     try {
+      piperStop();
       await nativeStop();
     } catch {
       // ignore
