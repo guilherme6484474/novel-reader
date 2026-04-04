@@ -8,7 +8,7 @@ import { useTTS } from "@/hooks/use-tts";
 import { useIsAdmin } from "@/hooks/use-is-admin";
 import { initCloudAudio, CLOUD_VOICES, getAudioMode, setAudioMode, getCloudVoice, setCloudVoice, type AudioPlaybackMode } from '@/lib/cloud-tts';
 import { getTTSEngine, setTTSEngine, type TTSEnginePreference } from '@/lib/native-tts';
-import { PIPER_VOICES, getPiperVoice, setPiperVoice, downloadPiperVoice, isPiperSupported, type PiperVoiceId } from '@/lib/piper-tts';
+import { PIPER_VOICES, getPiperVoice, setPiperVoice, downloadPiperVoice, isPiperSupported, preloadPiperModule, type PiperVoiceId } from '@/lib/piper-tts';
 import { usePwaInstall } from "@/hooks/use-pwa-install";
 import { scrapeChapter, translateChapterStream, type ChapterData } from "@/lib/api/novel";
 import { getCachedTranslation, setCachedTranslation, clearTranslationCache } from "@/lib/translation-cache";
@@ -151,6 +151,11 @@ const Index = () => {
   const [piperVoice, setPiperVoiceState] = useState<PiperVoiceId>(getPiperVoice);
   const [piperDownloading, setPiperDownloading] = useState(false);
   const [piperProgress, setPiperProgress] = useState(0);
+
+  // Pre-load Piper WASM module if already selected
+  useEffect(() => {
+    if (ttsEngine === 'piper') preloadPiperModule();
+  }, []);
   const autoReadRef = useRef(autoRead);
   const tts = useTTS();
   const { isAdmin } = useIsAdmin();
@@ -839,7 +844,7 @@ const Index = () => {
                         variant={ttsEngine === 'piper' ? 'default' : 'outline'}
                         size="sm"
                         className="flex-1 h-8 text-xs rounded-lg min-w-[80px]"
-                        onClick={() => { setTtsEngineState('piper'); setTTSEngine('piper'); }}
+                        onClick={() => { setTtsEngineState('piper'); setTTSEngine('piper'); preloadPiperModule(); }}
                       >
                         🧠 Piper
                       </Button>

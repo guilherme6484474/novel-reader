@@ -4,14 +4,14 @@ import { ttsLog, ttsError } from "@/lib/tts-debug-log";
 import { toast } from "sonner";
 import { acquireWakeLock, releaseWakeLock, setMediaSessionHandlers, updateMediaSessionPlaybackState } from "@/lib/keep-awake";
 import { startForegroundService, stopForegroundService } from "@/lib/foreground-service";
-import { piperSpeak, piperStop, getPiperVoice } from "@/lib/piper-tts";
+import { piperSpeak, piperStop, getPiperVoice, piperPreBuffer, preloadPiperModule } from "@/lib/piper-tts";
 
 import { getTTSEngine } from "@/lib/native-tts";
 
 // Chunk sizes per engine
 const MAX_CHUNK_CLOUD = 4000; // Google Cloud TTS supports up to 5000 chars
 const MAX_CHUNK_WEBSPEECH = 200; // WebSpeech works best with short utterances
-const MAX_CHUNK_PIPER = 500; // Piper processes locally, moderate chunks work well
+const MAX_CHUNK_PIPER = 250; // Piper: smaller chunks = faster first response + pre-buffering fills gaps
 
 function getMaxChunkChars(): number {
   const engine = getTTSEngine();
@@ -522,6 +522,7 @@ export function useTTS() {
   }, [clearWordTimer, updatePosition, startWordStepper, speakChunkNative]);
 
   // ─── Piper TTS chunk speaker (offline WASM) ───
+  // Optimized with pre-buffering: synthesizes next chunk while current plays
   const speakChunkPiper = useCallback(async (chunkIndex: number, gen: number) => {
     if (!speakingRef.current || gen !== generationRef.current) return;
     const chunks = chunksRef.current;
@@ -546,6 +547,12 @@ export function useTTS() {
     chunkStartTimeRef.current = performance.now();
     startWordStepper(chunkText, globalOffset, rateRef.current);
 
+    // Start pre-buffering the NEXT chunk immediately (runs in parallel with playback)
+    const nextChunkIdx = chunkIndex + 1;
+    if (nextChunkIdx < chunks.length) {
+      piperPreBuffer(chunks[nextChunkIdx], getPiperVoice());
+    }
+
     try {
       const result = await piperSpeak(chunkText, getPiperVoice());
 
@@ -556,7 +563,7 @@ export function useTTS() {
       clearWordTimer();
 
       if (speakingRef.current && gen === generationRef.current && !pausedRef.current) {
-        speakChunkPiper(chunkIndex + 1, gen);
+        speakChunkPiper(nextChunkIdx, gen);
       }
     } catch (e) {
       if (pausedRef.current || gen !== generationRef.current) {
