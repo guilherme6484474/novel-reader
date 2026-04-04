@@ -839,7 +839,7 @@ const Index = () => {
                         variant={ttsEngine === 'piper' ? 'default' : 'outline'}
                         size="sm"
                         className="flex-1 h-8 text-xs rounded-lg min-w-[80px]"
-                        onClick={() => { setTtsEngineState('piper'); setTTSEngine('piper'); }}
+                        onClick={() => { setTtsEngineState('piper'); setTTSEngine('piper'); preloadPiperModule(); }}
                       >
                         🧠 Piper
                       </Button>
