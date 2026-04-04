@@ -151,6 +151,11 @@ const Index = () => {
   const [piperVoice, setPiperVoiceState] = useState<PiperVoiceId>(getPiperVoice);
   const [piperDownloading, setPiperDownloading] = useState(false);
   const [piperProgress, setPiperProgress] = useState(0);
+
+  // Pre-load Piper WASM module if already selected
+  useEffect(() => {
+    if (ttsEngine === 'piper') preloadPiperModule();
+  }, []);
   const autoReadRef = useRef(autoRead);
   const tts = useTTS();
   const { isAdmin } = useIsAdmin();
