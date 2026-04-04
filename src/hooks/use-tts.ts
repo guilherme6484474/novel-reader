@@ -11,7 +11,7 @@ import { getTTSEngine } from "@/lib/native-tts";
 // Chunk sizes per engine
 const MAX_CHUNK_CLOUD = 4000; // Google Cloud TTS supports up to 5000 chars
 const MAX_CHUNK_WEBSPEECH = 200; // WebSpeech works best with short utterances
-const MAX_CHUNK_PIPER = 500; // Piper processes locally, moderate chunks work well
+const MAX_CHUNK_PIPER = 250; // Piper: smaller chunks = faster first response + pre-buffering fills gaps
 
 function getMaxChunkChars(): number {
   const engine = getTTSEngine();
