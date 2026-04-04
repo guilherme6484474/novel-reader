@@ -77,6 +77,8 @@ const PIPER_RUNTIME_PATHS = {
   piperWasm: PIPER_PHONEMIZE_WASM_PATH,
 };
 
+const SILENT_MP3 = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRBkFAAAAAAD/+1DEAAAHAAGf9AAAIMAAMO/4AAQAAAAANIAAAAADSA0gNIDSA0mf/6TQDSA0gNIDSA0gNJn/5MgNIDSA0gNIDSA0mf/lMgNIDSA0gNIDSBpMgNIDSA0gNIDSA0gNID/+xDELgPAAAGkAAAAIAAANIAAAAQSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIDSA0gNIA=';
+
 let ttsModule: PiperModule | null = null;
 let modulePromise: Promise<PiperModule> | null = null;
 let sessionPromise: Promise<PiperSession> | null = null;
@@ -258,6 +260,47 @@ let currentAudio: HTMLAudioElement | null = null;
 let currentBlobUrl: string | null = null;
 let currentReject: ((reason: Error) => void) | null = null;
 let playbackToken = 0;
+let sharedPlaybackAudio: HTMLAudioElement | null = null;
+let playbackAudioPrimed = false;
+
+function getPlaybackAudio(): HTMLAudioElement {
+  if (!sharedPlaybackAudio) {
+    sharedPlaybackAudio = new Audio();
+    sharedPlaybackAudio.preload = 'auto';
+    (sharedPlaybackAudio as any).playsInline = true;
+  }
+  return sharedPlaybackAudio;
+}
+
+/** Prime the shared audio element during a user gesture for better Android WebView reliability. */
+export function initPiperAudio(): void {
+  if (typeof window === 'undefined' || playbackAudioPrimed) return;
+
+  try {
+    const audio = getPlaybackAudio();
+    audio.loop = false;
+    audio.volume = 0.01;
+    audio.src = SILENT_MP3;
+
+    const playPromise = audio.play();
+    if (playPromise) {
+      playPromise
+        .then(() => {
+          playbackAudioPrimed = true;
+          ttsLog('Piper audio element primed');
+        })
+        .catch((error) => {
+          playbackAudioPrimed = false;
+          ttsError(`Piper audio warm-up failed: ${error}`);
+        });
+    } else {
+      playbackAudioPrimed = true;
+    }
+  } catch (error) {
+    playbackAudioPrimed = false;
+    ttsError(`Piper audio warm-up threw: ${error}`);
+  }
+}
 
 function ensureActivePlayback(token: number) {
   if (token !== playbackToken) {
@@ -419,8 +462,17 @@ export async function piperSpeak(
   }
 
   currentBlobUrl = URL.createObjectURL(wav);
-  const audio = new Audio(currentBlobUrl);
+  const audio = getPlaybackAudio();
+  audio.pause();
+  audio.onended = null;
+  audio.onerror = null;
+  audio.onplaying = null;
+  audio.loop = false;
+  audio.volume = 1;
+  audio.src = currentBlobUrl;
+  audio.currentTime = 0;
   currentAudio = audio;
+  playbackAudioPrimed = true;
 
   ensureActivePlayback(token);
 
