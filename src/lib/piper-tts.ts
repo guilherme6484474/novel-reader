@@ -421,12 +421,24 @@ function cleanup() {
 
 /** Stop current Piper playback */
 export function piperStop() {
+  // Reject pending promise first so the caller's await unblocks immediately
+  const rejectFn = currentReject;
+  currentReject = null;
+
   if (currentAudio) {
+    currentAudio.onended = null;
+    currentAudio.onerror = null;
+    currentAudio.onplaying = null;
     currentAudio.pause();
     currentAudio.currentTime = 0;
     cleanup();
   }
   clearPreBuffer();
+
+  // Reject after cleanup to avoid re-entrant issues
+  if (rejectFn) {
+    rejectFn(new Error('Piper playback stopped by user'));
+  }
 }
 
 /** Check if Piper TTS is supported in this browser */
