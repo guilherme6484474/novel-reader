@@ -8,7 +8,7 @@ import { useTTS } from "@/hooks/use-tts";
 import { useIsAdmin } from "@/hooks/use-is-admin";
 import { initCloudAudio, CLOUD_VOICES, getAudioMode, setAudioMode, getCloudVoice, setCloudVoice, type AudioPlaybackMode } from '@/lib/cloud-tts';
 import { getTTSEngine, setTTSEngine, type TTSEnginePreference } from '@/lib/native-tts';
-import { PIPER_VOICES, getPiperVoice, setPiperVoice, downloadPiperVoice, isPiperSupported, type PiperVoiceId } from '@/lib/piper-tts';
+import { PIPER_VOICES, getPiperVoice, setPiperVoice, downloadPiperVoice, isPiperSupported, preloadPiperModule, type PiperVoiceId } from '@/lib/piper-tts';
 import { usePwaInstall } from "@/hooks/use-pwa-install";
 import { scrapeChapter, translateChapterStream, type ChapterData } from "@/lib/api/novel";
 import { getCachedTranslation, setCachedTranslation, clearTranslationCache } from "@/lib/translation-cache";
