@@ -7,7 +7,7 @@ import { ttsLog, ttsWarn, ttsError } from '@/lib/tts-debug-log';
 import { cloudSpeak, cloudStop, getCloudVoice, preBufferChunk } from '@/lib/cloud-tts';
 
 // ─── TTS Engine preference ───
-export type TTSEnginePreference = 'cloud' | 'webspeech';
+export type TTSEnginePreference = 'cloud' | 'webspeech' | 'piper';
 
 export function getTTSEngine(): TTSEnginePreference {
   return (localStorage.getItem('nr-ttsEngine') as TTSEnginePreference) || 'cloud';

@@ -4,15 +4,19 @@ import { ttsLog, ttsError } from "@/lib/tts-debug-log";
 import { toast } from "sonner";
 import { acquireWakeLock, releaseWakeLock, setMediaSessionHandlers, updateMediaSessionPlaybackState } from "@/lib/keep-awake";
 import { startForegroundService, stopForegroundService } from "@/lib/foreground-service";
+import { piperSpeak, piperStop, getPiperVoice } from "@/lib/piper-tts";
 
 import { getTTSEngine } from "@/lib/native-tts";
 
 // Chunk sizes per engine
 const MAX_CHUNK_CLOUD = 4000; // Google Cloud TTS supports up to 5000 chars
 const MAX_CHUNK_WEBSPEECH = 200; // WebSpeech works best with short utterances
+const MAX_CHUNK_PIPER = 500; // Piper processes locally, moderate chunks work well
 
 function getMaxChunkChars(): number {
-  if (!isNative() && getTTSEngine() === 'webspeech') return MAX_CHUNK_WEBSPEECH;
+  const engine = getTTSEngine();
+  if (!isNative() && engine === 'webspeech') return MAX_CHUNK_WEBSPEECH;
+  if (engine === 'piper') return MAX_CHUNK_PIPER;
   return MAX_CHUNK_CLOUD;
 }
 
@@ -517,17 +521,76 @@ export function useTTS() {
     speechSynthesis.speak(utterance);
   }, [clearWordTimer, updatePosition, startWordStepper, speakChunkNative]);
 
+  // ─── Piper TTS chunk speaker (offline WASM) ───
+  const speakChunkPiper = useCallback(async (chunkIndex: number, gen: number) => {
+    if (!speakingRef.current || gen !== generationRef.current) return;
+    const chunks = chunksRef.current;
+    const offsets = chunkOffsetsRef.current;
+
+    if (chunkIndex >= chunks.length) {
+      speakingRef.current = false;
+      setIsSpeaking(false);
+      setIsPaused(false);
+      setProgress(100);
+      setActiveCharIndex(-1);
+      clearWordTimer();
+      onEndCallbackRef.current?.();
+      return;
+    }
+
+    const chunkText = chunks[chunkIndex];
+    const globalOffset = offsets[chunkIndex];
+    currentChunkRef.current = chunkIndex;
+
+    updatePosition(globalOffset);
+    chunkStartTimeRef.current = performance.now();
+    startWordStepper(chunkText, globalOffset, rateRef.current);
+
+    try {
+      const result = await piperSpeak(chunkText, getPiperVoice());
+
+      if (chunkIndex === 0) {
+        setDebugInfo(prev => prev + ` | Engine: ${result.engine}`);
+      }
+
+      clearWordTimer();
+
+      if (speakingRef.current && gen === generationRef.current && !pausedRef.current) {
+        speakChunkPiper(chunkIndex + 1, gen);
+      }
+    } catch (e) {
+      if (pausedRef.current || gen !== generationRef.current) {
+        clearWordTimer();
+        return;
+      }
+
+      const message = e instanceof Error ? e.message : String(e);
+      ttsError(`Piper chunk ${chunkIndex} error: ${message}`);
+      toast.error("Erro no Piper TTS", {
+        description: message.length > 100 ? message.slice(0, 100) + '…' : message,
+        duration: 5000,
+      });
+
+      clearWordTimer();
+      speakingRef.current = false;
+      setIsSpeaking(false);
+      setIsPaused(false);
+      setActiveCharIndex(-1);
+    }
+  }, [clearWordTimer, updatePosition, startWordStepper]);
+
   // ─── Unified speak function ───
-  // Routes to the correct speaker based on engine preference:
-  // - 'webspeech' on browser → speakChunkWeb (proper SpeechSynthesis with boundary events)
-  // - everything else → speakChunkNative (Cloud TTS via HTML Audio, works in background)
+  // Routes to the correct speaker based on engine preference
   const speakChunk = useCallback((chunkIndex: number, gen: number) => {
-    if (!isNative() && getTTSEngine() === 'webspeech') {
+    const engine = getTTSEngine();
+    if (engine === 'piper') {
+      speakChunkPiper(chunkIndex, gen);
+    } else if (!isNative() && engine === 'webspeech') {
       speakChunkWeb(chunkIndex, gen);
     } else {
       speakChunkNative(chunkIndex, gen);
     }
-  }, [speakChunkNative, speakChunkWeb]);
+  }, [speakChunkNative, speakChunkWeb, speakChunkPiper]);
 
   const cancelCurrentSpeech = useCallback(async (resetUi: boolean) => {
     // FIX #1: Increment generation to invalidate all in-flight chunk callbacks
@@ -536,7 +599,9 @@ export function useTTS() {
     pausedRef.current = false;
 
     // nativeStop handles all engines: Capacitor plugin, Cloud TTS, and WebSpeech
+    // Also stop Piper if active
     try {
+      piperStop();
       await nativeStop();
     } catch {
       // ignore
