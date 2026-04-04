@@ -575,7 +575,8 @@ export function useTTS() {
         speakChunkPiper(nextChunkIdx, gen);
       }
     } catch (e) {
-      if (pausedRef.current || gen !== generationRef.current) {
+      // Stale generation (paused, stopped, or new speak session) — ignore silently
+      if (gen !== generationRef.current) {
         clearWordTimer();
         return;
       }
