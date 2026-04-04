@@ -382,18 +382,22 @@ export async function piperSpeak(
   };
 
   return new Promise<{ engine: string }>((resolve, reject) => {
+    currentReject = reject;
     audio.onplaying = () => {
       queueNextChunk();
     };
     audio.onended = () => {
+      currentReject = null;
       cleanup();
       resolve({ engine: `piper:${vid}` });
     };
     audio.onerror = (e) => {
+      currentReject = null;
       cleanup();
       reject(new Error(`Piper audio playback error: ${e}`));
     };
     audio.play().catch((err) => {
+      currentReject = null;
       cleanup();
       reject(err);
     });
