@@ -4,14 +4,15 @@ import { ttsLog, ttsError } from "@/lib/tts-debug-log";
 import { toast } from "sonner";
 import { acquireWakeLock, releaseWakeLock, setMediaSessionHandlers, updateMediaSessionPlaybackState } from "@/lib/keep-awake";
 import { startForegroundService, stopForegroundService } from "@/lib/foreground-service";
-import { piperSpeak, piperStop, getPiperVoice, preloadPiperModule, warmPiperVoice } from "@/lib/piper-tts";
+import { piperSpeak, piperStop, getPiperVoice, warmPiperVoice } from "@/lib/piper-tts";
 
 import { getTTSEngine } from "@/lib/native-tts";
 
 // Chunk sizes per engine
 const MAX_CHUNK_CLOUD = 4000; // Google Cloud TTS supports up to 5000 chars
 const MAX_CHUNK_WEBSPEECH = 200; // WebSpeech works best with short utterances
-const MAX_CHUNK_PIPER = 250; // Piper: smaller chunks = faster first response + pre-buffering fills gaps
+const MAX_CHUNK_PIPER_INITIAL = 140; // Piper: start faster with a smaller first chunk
+const MAX_CHUNK_PIPER = 420; // Then use larger chunks to reduce gaps between paragraphs
 
 function getMaxChunkChars(): number {
   const engine = getTTSEngine();
@@ -20,8 +21,7 @@ function getMaxChunkChars(): number {
   return MAX_CHUNK_CLOUD;
 }
 
-function splitIntoSentences(text: string): string[] {
-  const maxChunk = getMaxChunkChars();
+function splitIntoSentences(text: string, maxChunk = getMaxChunkChars()): string[] {
   const parts: string[] = [];
   const regex = /[^.!?\n]+[.!?\n]+\s*/g;
   let match: RegExpExecArray | null;
@@ -64,6 +64,19 @@ function splitIntoSentences(text: string): string[] {
   }
   if (buffer) merged.push(buffer);
   return merged;
+}
+
+function splitTextForPlayback(text: string): string[] {
+  if (getTTSEngine() !== 'piper') return splitIntoSentences(text);
+
+  const firstPass = splitIntoSentences(text, MAX_CHUNK_PIPER_INITIAL);
+  const firstChunk = firstPass[0];
+  if (!firstChunk) return [];
+
+  const remainingText = text.slice(firstChunk.length);
+  if (!remainingText.trim()) return [firstChunk];
+
+  return [firstChunk, ...splitIntoSentences(remainingText, MAX_CHUNK_PIPER)];
 }
 
 function buildWordMap(text: string): { word: string; start: number }[] {
@@ -641,7 +654,7 @@ export function useTTS() {
       return;
     }
 
-    const chunks = splitIntoSentences(textToSpeak);
+    const chunks = splitTextForPlayback(textToSpeak);
     chunksRef.current = chunks;
 
     const offsets: number[] = [];
@@ -695,10 +708,14 @@ export function useTTS() {
     ttsLog('[useTTS] speak() called, textLen=' + text.length);
     setIsLoading(true);
     try {
-      // Parallelize all setup tasks for faster start
       const isPiper = getTTSEngine() === 'piper';
+      if (isPiper) {
+        void warmPiperVoice(getPiperVoice()).catch((error) => {
+          ttsError('[useTTS] Piper warm failed: ' + (error instanceof Error ? error.message : String(error)));
+        });
+      }
+
       await Promise.all([
-        isPiper ? warmPiperVoice(getPiperVoice()) : Promise.resolve(),
         startForegroundService(),
         acquireWakeLock(),
       ]);
