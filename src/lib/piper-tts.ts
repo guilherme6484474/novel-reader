@@ -251,7 +251,7 @@ async function pitchShiftBlob(wav: Blob, pitchFactor: number): Promise<Blob> {
   return audioBufferToWav(rendered);
 }
 
-// ─── Audio playback with pre-buffering ───
+// ─── Audio playback with pre-buffering and synthesis cache ───
 
 // Current audio element for stop control
 let currentAudio: HTMLAudioElement | null = null;
@@ -262,6 +262,23 @@ let playbackToken = 0;
 function ensureActivePlayback(token: number) {
   if (token !== playbackToken) {
     throw new Error('Piper playback cancelled');
+  }
+}
+
+// ─── Synthesis cache (avoids re-synthesizing on resume) ───
+const synthCache = new Map<string, Blob>();
+const SYNTH_CACHE_MAX = 6;
+
+function getSynthCacheKey(text: string, voiceId: PiperVoiceId): string {
+  return `${voiceId}::${text}`;
+}
+
+function cacheSynthResult(key: string, blob: Blob) {
+  synthCache.set(key, blob);
+  // Evict oldest entries
+  if (synthCache.size > SYNTH_CACHE_MAX) {
+    const first = synthCache.keys().next().value;
+    if (first) synthCache.delete(first);
   }
 }
 
