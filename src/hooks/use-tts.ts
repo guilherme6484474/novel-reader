@@ -502,12 +502,16 @@ export function useTTS() {
   }, [clearWordTimer, updatePosition, startWordStepper]);
 
   // ─── Unified speak function ───
-  // Always use speakChunkNative which calls nativeSpeak → on web tries WebSpeech
-  // then falls back to Cloud TTS (HTML Audio). HTML Audio continues playing
-  // when screen is off or app is in background, unlike speechSynthesis.
+  // Routes to the correct speaker based on engine preference:
+  // - 'webspeech' on browser → speakChunkWeb (proper SpeechSynthesis with boundary events)
+  // - everything else → speakChunkNative (Cloud TTS via HTML Audio, works in background)
   const speakChunk = useCallback((chunkIndex: number, gen: number) => {
-    speakChunkNative(chunkIndex, gen);
-  }, [speakChunkNative]);
+    if (!isNative() && getTTSEngine() === 'webspeech') {
+      speakChunkWeb(chunkIndex, gen);
+    } else {
+      speakChunkNative(chunkIndex, gen);
+    }
+  }, [speakChunkNative, speakChunkWeb]);
 
   const cancelCurrentSpeech = useCallback(async (resetUi: boolean) => {
     // FIX #1: Increment generation to invalidate all in-flight chunk callbacks
