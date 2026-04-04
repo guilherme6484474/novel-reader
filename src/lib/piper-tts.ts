@@ -35,6 +35,8 @@ let downloadingVoice: string | null = null;
 // Lazy-load the WASM module
 async function getModule() {
   if (ttsModule) return ttsModule;
+  // Must configure ORT paths before piper-tts-web imports it
+  await configureOrt();
   ttsLog('Loading Piper TTS WASM module...');
   ttsModule = await import('@mintplex-labs/piper-tts-web');
   ttsLog('Piper TTS WASM module loaded');
