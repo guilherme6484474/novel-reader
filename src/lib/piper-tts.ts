@@ -249,6 +249,7 @@ async function pitchShiftBlob(wav: Blob, pitchFactor: number): Promise<Blob> {
 // Current audio element for stop control
 let currentAudio: HTMLAudioElement | null = null;
 let currentBlobUrl: string | null = null;
+let currentReject: ((reason: Error) => void) | null = null;
 
 // Pre-buffered next chunk
 let preBufferedBlob: Blob | null = null;
