@@ -695,11 +695,13 @@ export function useTTS() {
     ttsLog('[useTTS] speak() called, textLen=' + text.length);
     setIsLoading(true);
     try {
-      if (getTTSEngine() === 'piper') {
-        await warmPiperVoice(getPiperVoice());
-      }
-      await startForegroundService();
-      await acquireWakeLock();
+      // Parallelize all setup tasks for faster start
+      const isPiper = getTTSEngine() === 'piper';
+      await Promise.all([
+        isPiper ? warmPiperVoice(getPiperVoice()) : Promise.resolve(),
+        startForegroundService(),
+        acquireWakeLock(),
+      ]);
       // Wire lock-screen media controls (web only)
       setMediaSessionHandlers({
         onPause: () => pause(),

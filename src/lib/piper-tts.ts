@@ -107,7 +107,14 @@ async function getModule(): Promise<PiperModule> {
 export function preloadPiperModule(): void {
   if (ttsModule || modulePromise) return;
   ttsLog('Pre-loading Piper WASM module in background...');
-  getModule().catch(e => ttsError(`Piper pre-load failed: ${e}`));
+  getModule()
+    .then(() => {
+      // Also warm the selected voice session in background
+      const vid = getPiperVoice();
+      ttsLog(`Pre-warming Piper voice session: ${vid}`);
+      return getSession(vid);
+    })
+    .catch(e => ttsError(`Piper pre-load failed: ${e}`));
 }
 
 /** Warm the selected voice session so first playback starts faster. */
