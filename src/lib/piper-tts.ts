@@ -55,6 +55,8 @@ type PiperModule = typeof import('@mintplex-labs/piper-tts-web');
 type PiperSession = Awaited<ReturnType<PiperModule['TtsSession']['create']>>;
 type PiperSpeakOptions = {
   nextText?: string;
+  rate?: number;   // playback speed (0.5–4.0, default 1)
+  pitch?: number;  // pitch factor (0.5–2.0, default 1)
 };
 
 const ORT_WASM_MJS_PATH = '/wasm/ort-wasm-simd-threaded.jsep.mjs';
