@@ -2,6 +2,10 @@
  * Piper TTS — free offline neural TTS running via WebAssembly in the browser.
  * Uses @mintplex-labs/piper-tts-web (ONNX Runtime + Piper models).
  * Models are downloaded once and cached in Origin Private File System.
+ *
+ * Optimizations:
+ * - Lazy module pre-loading when engine is selected (not on first speak)
+ * - Pre-buffering: synthesizes next chunk while current audio plays
  */
 import { ttsLog, ttsError } from '@/lib/tts-debug-log';
 
@@ -36,17 +40,32 @@ const PIPER_RUNTIME_PATHS = {
 };
 
 let ttsModule: PiperModule | null = null;
+let modulePromise: Promise<PiperModule> | null = null;
 let sessionPromise: Promise<PiperSession> | null = null;
 let sessionVoiceId: PiperVoiceId | null = null;
 let downloadingVoice: string | null = null;
 
-// Lazy-load the Piper module
-async function getModule() {
+// Lazy-load the Piper module (cached after first call)
+async function getModule(): Promise<PiperModule> {
   if (ttsModule) return ttsModule;
+  if (modulePromise) return modulePromise;
   ttsLog('Loading Piper TTS WASM module...');
-  ttsModule = await import('@mintplex-labs/piper-tts-web');
-  ttsLog('Piper TTS WASM module loaded');
-  return ttsModule;
+  modulePromise = import('@mintplex-labs/piper-tts-web').then(mod => {
+    ttsModule = mod;
+    ttsLog('Piper TTS WASM module loaded');
+    return mod;
+  });
+  return modulePromise;
+}
+
+/**
+ * Pre-load the WASM module in the background (call when user selects Piper engine).
+ * Does not create a session — just downloads and compiles the WASM.
+ */
+export function preloadPiperModule(): void {
+  if (ttsModule || modulePromise) return;
+  ttsLog('Pre-loading Piper WASM module in background...');
+  getModule().catch(e => ttsError(`Piper pre-load failed: ${e}`));
 }
 
 async function getSession(voiceId: PiperVoiceId): Promise<PiperSession> {
@@ -109,22 +128,84 @@ export async function downloadPiperVoice(
   }
 }
 
+// ─── Audio playback with pre-buffering ───
+
 // Current audio element for stop control
 let currentAudio: HTMLAudioElement | null = null;
 let currentBlobUrl: string | null = null;
 
+// Pre-buffered next chunk
+let preBufferedBlob: Blob | null = null;
+let preBufferedBlobUrl: string | null = null;
+let preBufferPromise: Promise<Blob | null> | null = null;
+
+/**
+ * Synthesize text to a WAV Blob without playing it.
+ * Used for pre-buffering the next chunk.
+ */
+export async function piperSynthesize(
+  text: string,
+  voiceId?: string,
+): Promise<Blob> {
+  const vid = (voiceId || getPiperVoice()) as PiperVoiceId;
+  const session = await getSession(vid);
+  ttsLog(`Piper synthesize (pre-buffer): ${text.length} chars`);
+  return await session.predict(text);
+}
+
+/**
+ * Start pre-buffering the next chunk text in the background.
+ * Call this right after starting playback of the current chunk.
+ */
+export function piperPreBuffer(text: string, voiceId?: string): void {
+  // Clear any previous pre-buffer
+  clearPreBuffer();
+  preBufferPromise = piperSynthesize(text, voiceId)
+    .then(blob => {
+      preBufferedBlob = blob;
+      ttsLog(`Pre-buffered ${text.length} chars ready`);
+      return blob;
+    })
+    .catch(e => {
+      ttsError(`Pre-buffer failed: ${e}`);
+      return null;
+    });
+}
+
+function clearPreBuffer() {
+  if (preBufferedBlobUrl) {
+    URL.revokeObjectURL(preBufferedBlobUrl);
+    preBufferedBlobUrl = null;
+  }
+  preBufferedBlob = null;
+  preBufferPromise = null;
+}
+
 /**
  * Speak text using Piper TTS. Returns a promise that resolves when speech ends.
+ * If a pre-buffered blob is available for this text, uses it instantly.
  */
 export async function piperSpeak(
   text: string,
   voiceId?: string,
 ): Promise<{ engine: string }> {
   const vid = (voiceId || getPiperVoice()) as PiperVoiceId;
-  const session = await getSession(vid);
+  let wav: Blob;
 
-  ttsLog(`Piper predict: ${text.length} chars, voice=${vid}`);
-  const wav = await session.predict(text);
+  // Check if we have a pre-buffered result
+  if (preBufferedBlob && preBufferPromise) {
+    const buffered = await preBufferPromise;
+    if (buffered && preBufferedBlob === buffered) {
+      ttsLog('Using pre-buffered audio (instant)');
+      wav = buffered;
+      preBufferedBlob = null;
+      preBufferPromise = null;
+    } else {
+      wav = await synthesizeFresh(text, vid);
+    }
+  } else {
+    wav = await synthesizeFresh(text, vid);
+  }
 
   // Clean up previous blob
   if (currentBlobUrl) {
@@ -152,6 +233,12 @@ export async function piperSpeak(
   });
 }
 
+async function synthesizeFresh(text: string, vid: PiperVoiceId): Promise<Blob> {
+  const session = await getSession(vid);
+  ttsLog(`Piper predict: ${text.length} chars, voice=${vid}`);
+  return await session.predict(text);
+}
+
 function cleanup() {
   if (currentBlobUrl) {
     URL.revokeObjectURL(currentBlobUrl);
@@ -167,6 +254,7 @@ export function piperStop() {
     currentAudio.currentTime = 0;
     cleanup();
   }
+  clearPreBuffer();
 }
 
 /** Check if Piper TTS is supported in this browser */
