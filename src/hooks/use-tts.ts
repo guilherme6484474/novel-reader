@@ -4,7 +4,7 @@ import { ttsLog, ttsError } from "@/lib/tts-debug-log";
 import { toast } from "sonner";
 import { acquireWakeLock, releaseWakeLock, setMediaSessionHandlers, updateMediaSessionPlaybackState } from "@/lib/keep-awake";
 import { startForegroundService, stopForegroundService } from "@/lib/foreground-service";
-import { piperSpeak, piperStop, getPiperVoice } from "@/lib/piper-tts";
+import { piperSpeak, piperStop, getPiperVoice, piperPreBuffer, preloadPiperModule } from "@/lib/piper-tts";
 
 import { getTTSEngine } from "@/lib/native-tts";
 
