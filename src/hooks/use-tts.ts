@@ -5,10 +5,14 @@ import { toast } from "sonner";
 import { acquireWakeLock, releaseWakeLock, setMediaSessionHandlers, updateMediaSessionPlaybackState } from "@/lib/keep-awake";
 import { startForegroundService, stopForegroundService } from "@/lib/foreground-service";
 
-// Large chunks for Cloud TTS (used on both native and web for background playback)
+import { getTTSEngine } from "@/lib/native-tts";
+
+// Chunk sizes per engine
 const MAX_CHUNK_CLOUD = 4000; // Google Cloud TTS supports up to 5000 chars
+const MAX_CHUNK_WEBSPEECH = 200; // WebSpeech works best with short utterances
 
 function getMaxChunkChars(): number {
+  if (!isNative() && getTTSEngine() === 'webspeech') return MAX_CHUNK_WEBSPEECH;
   return MAX_CHUNK_CLOUD;
 }
 
@@ -498,12 +502,16 @@ export function useTTS() {
   }, [clearWordTimer, updatePosition, startWordStepper]);
 
   // ─── Unified speak function ───
-  // Always use speakChunkNative which calls nativeSpeak → on web tries WebSpeech
-  // then falls back to Cloud TTS (HTML Audio). HTML Audio continues playing
-  // when screen is off or app is in background, unlike speechSynthesis.
+  // Routes to the correct speaker based on engine preference:
+  // - 'webspeech' on browser → speakChunkWeb (proper SpeechSynthesis with boundary events)
+  // - everything else → speakChunkNative (Cloud TTS via HTML Audio, works in background)
   const speakChunk = useCallback((chunkIndex: number, gen: number) => {
-    speakChunkNative(chunkIndex, gen);
-  }, [speakChunkNative]);
+    if (!isNative() && getTTSEngine() === 'webspeech') {
+      speakChunkWeb(chunkIndex, gen);
+    } else {
+      speakChunkNative(chunkIndex, gen);
+    }
+  }, [speakChunkNative, speakChunkWeb]);
 
   const cancelCurrentSpeech = useCallback(async (resetUi: boolean) => {
     // FIX #1: Increment generation to invalidate all in-flight chunk callbacks
