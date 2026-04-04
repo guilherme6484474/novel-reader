@@ -375,22 +375,31 @@ export async function piperSpeak(
   const rate = options?.rate ?? 1;
   const pitch = options?.pitch ?? 1;
   let wav: Blob;
+  const synthCacheKey = getSynthCacheKey(text, vid);
 
-  // Check if we already pre-rendered this exact chunk
+  // Priority 1: Check pre-buffer (synthesized in background during previous chunk)
   if (preBufferedKey === requestedKey && preBufferPromise) {
     const buffered = await preBufferPromise;
     ensureActivePlayback(token);
     if (buffered && preBufferedKey === requestedKey) {
       ttsLog('Using pre-buffered audio (instant)');
       wav = buffered;
+      cacheSynthResult(synthCacheKey, wav);
       preBufferedBlob = null;
       preBufferPromise = null;
       preBufferedKey = null;
     } else {
-      wav = await synthesizeFresh(text, vid);
+      wav = await synthesizeWithCache(text, vid);
     }
-  } else {
-    wav = await synthesizeFresh(text, vid);
+  }
+  // Priority 2: Check synthesis cache (e.g. resume after pause)
+  else if (synthCache.has(synthCacheKey)) {
+    wav = synthCache.get(synthCacheKey)!;
+    ttsLog('Using cached synthesis (instant resume)');
+  }
+  // Priority 3: Fresh synthesis
+  else {
+    wav = await synthesizeWithCache(text, vid);
   }
 
   ensureActivePlayback(token);
