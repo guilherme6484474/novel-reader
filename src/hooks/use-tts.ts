@@ -4,7 +4,7 @@ import { ttsLog, ttsError } from "@/lib/tts-debug-log";
 import { toast } from "sonner";
 import { acquireWakeLock, releaseWakeLock, setMediaSessionHandlers, updateMediaSessionPlaybackState } from "@/lib/keep-awake";
 import { startForegroundService, stopForegroundService } from "@/lib/foreground-service";
-import { piperSpeak, piperStop, getPiperVoice, piperPreBuffer, preloadPiperModule } from "@/lib/piper-tts";
+import { piperSpeak, piperStop, getPiperVoice, preloadPiperModule, warmPiperVoice } from "@/lib/piper-tts";
 
 import { getTTSEngine } from "@/lib/native-tts";
 
@@ -547,14 +547,13 @@ export function useTTS() {
     chunkStartTimeRef.current = performance.now();
     startWordStepper(chunkText, globalOffset, rateRef.current);
 
-    // Start pre-buffering the NEXT chunk immediately (runs in parallel with playback)
     const nextChunkIdx = chunkIndex + 1;
-    if (nextChunkIdx < chunks.length) {
-      piperPreBuffer(chunks[nextChunkIdx], getPiperVoice());
-    }
+    const nextChunkText = nextChunkIdx < chunks.length ? chunks[nextChunkIdx] : undefined;
 
     try {
-      const result = await piperSpeak(chunkText, getPiperVoice());
+      const result = await piperSpeak(chunkText, getPiperVoice(), {
+        nextText: nextChunkText,
+      });
 
       if (chunkIndex === 0) {
         setDebugInfo(prev => prev + ` | Engine: ${result.engine}`);
@@ -694,6 +693,9 @@ export function useTTS() {
     ttsLog('[useTTS] speak() called, textLen=' + text.length);
     setIsLoading(true);
     try {
+      if (getTTSEngine() === 'piper') {
+        await warmPiperVoice(getPiperVoice());
+      }
       await startForegroundService();
       await acquireWakeLock();
       // Wire lock-screen media controls (web only)
