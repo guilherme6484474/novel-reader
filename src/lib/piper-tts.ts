@@ -463,10 +463,18 @@ export async function piperSpeak(
   });
 }
 
-async function synthesizeFresh(text: string, vid: PiperVoiceId): Promise<Blob> {
+async function synthesizeWithCache(text: string, vid: PiperVoiceId): Promise<Blob> {
+  const cacheKey = getSynthCacheKey(text, vid);
+  const cached = synthCache.get(cacheKey);
+  if (cached) {
+    ttsLog(`Piper cache hit: ${text.length} chars`);
+    return cached;
+  }
   const session = await getSession(vid);
   ttsLog(`Piper predict: ${text.length} chars, voice=${vid}`);
-  return await session.predict(text);
+  const blob = await session.predict(text);
+  cacheSynthResult(cacheKey, blob);
+  return blob;
 }
 
 function cleanup() {
