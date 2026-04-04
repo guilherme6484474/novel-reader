@@ -4,15 +4,19 @@ import { ttsLog, ttsError } from "@/lib/tts-debug-log";
 import { toast } from "sonner";
 import { acquireWakeLock, releaseWakeLock, setMediaSessionHandlers, updateMediaSessionPlaybackState } from "@/lib/keep-awake";
 import { startForegroundService, stopForegroundService } from "@/lib/foreground-service";
+import { piperSpeak, piperStop, getPiperVoice } from "@/lib/piper-tts";
 
 import { getTTSEngine } from "@/lib/native-tts";
 
 // Chunk sizes per engine
 const MAX_CHUNK_CLOUD = 4000; // Google Cloud TTS supports up to 5000 chars
 const MAX_CHUNK_WEBSPEECH = 200; // WebSpeech works best with short utterances
+const MAX_CHUNK_PIPER = 500; // Piper processes locally, moderate chunks work well
 
 function getMaxChunkChars(): number {
-  if (!isNative() && getTTSEngine() === 'webspeech') return MAX_CHUNK_WEBSPEECH;
+  const engine = getTTSEngine();
+  if (!isNative() && engine === 'webspeech') return MAX_CHUNK_WEBSPEECH;
+  if (engine === 'piper') return MAX_CHUNK_PIPER;
   return MAX_CHUNK_CLOUD;
 }
 
