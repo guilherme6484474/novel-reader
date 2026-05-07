@@ -8,6 +8,10 @@ const DB_NAME = "novel-reader-cache";
 const DB_VERSION = 1;
 const STORE_NAME = "translations";
 const MAX_ENTRIES = 200;
+// Bump this when scraper output format changes to invalidate old cached
+// translations that may contain garbage (e.g. comment-template JS leakage
+// from novelbin before the script-stripping fix).
+const CACHE_VERSION = "v2";
 
 interface CacheEntry {
   key: string;
@@ -35,7 +39,7 @@ function openDB(): Promise<IDBDatabase> {
 }
 
 function cacheKey(chapterUrl: string, language: string): string {
-  return `${language}::${chapterUrl}`;
+  return `${CACHE_VERSION}::${language}::${chapterUrl}`;
 }
 
 export async function getCachedTranslation(
