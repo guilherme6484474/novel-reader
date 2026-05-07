@@ -45,6 +45,15 @@ function extractTextFromNextData(obj: unknown, depth = 0): string {
 }
 
 function extractContent(html: string, hostname: string): string {
+  // Strip script/style/noscript blocks early so their contents (e.g. JS template
+  // literals containing <article>/<div> markup) cannot be matched by the
+  // selectors below. This prevents extracting comment-widget templates
+  // (e.g. NovelBin) instead of the actual chapter text.
+  html = html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, '');
+
   // Site-specific selectors first, then generic fallbacks
   const siteSelectors: Record<string, RegExp[]> = {
     'royalroad.com': [
@@ -83,6 +92,9 @@ function extractContent(html: string, hostname: string): string {
       /class="[^"]*chp_raw[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
     ],
     'novelbin': [
+      // chr-content contains nested <div> ad slots — capture everything up to chr-end marker.
+      /id="chr-content"[^>]*>([\s\S]*?)<hr\s+class="chr-end"/i,
+      /id="chr-content"[^>]*>([\s\S]*?)<\/div>\s*<hr/i,
       /id="chr-content"[^>]*>([\s\S]*?)<\/div>/i,
       /class="[^"]*chr-c[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
     ],
