@@ -560,6 +560,10 @@ serve(async (req) => {
       prevChapterUrl = nav.prev;
     }
 
+    // Strip broken "/undefined" links produced by SSR placeholders (e.g. novelbin)
+    if (nextChapterUrl.endsWith('/undefined') || nextChapterUrl.includes('undefined')) nextChapterUrl = '';
+    if (prevChapterUrl.endsWith('/undefined') || prevChapterUrl.includes('undefined')) prevChapterUrl = '';
+
     // URL-based chapter navigation fallback for sites with sequential chapter URLs
     if (hostname.includes('wtr-lab.com') || hostname.includes('freewebnovel')) {
       const chapterMatch = url.match(/\/chapter-(\d+)/);
@@ -570,6 +574,22 @@ serve(async (req) => {
         }
         if (!prevChapterUrl && chNum > 1) {
           prevChapterUrl = url.replace(/\/chapter-\d+/, `/chapter-${chNum - 1}`);
+        }
+      }
+    }
+
+    // novelbin uses /cchapter-N (and sometimes /chapter-N) sequential URLs;
+    // SSR often renders next as /undefined, so derive from current URL.
+    if (hostname.includes('novelbin')) {
+      const m = url.match(/\/c?chapter-(\d+)/);
+      if (m) {
+        const chNum = parseInt(m[1], 10);
+        const prefix = url.includes('/cchapter-') ? 'cchapter' : 'chapter';
+        if (!nextChapterUrl) {
+          nextChapterUrl = url.replace(/\/c?chapter-\d+[^/?#]*/, `/${prefix}-${chNum + 1}`);
+        }
+        if (!prevChapterUrl && chNum > 1) {
+          prevChapterUrl = url.replace(/\/c?chapter-\d+[^/?#]*/, `/${prefix}-${chNum - 1}`);
         }
       }
     }
