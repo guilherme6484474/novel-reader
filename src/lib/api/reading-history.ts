@@ -7,8 +7,8 @@ export async function saveReadingProgress(
   chapterUrl: string,
   chapterTitle?: string
 ) {
-  // Extract the base novel URL (without chapter)
-  const baseNovelUrl = novelUrl.replace(/\/chapter-.*$/, '');
+  // Extract the base novel URL (without chapter). Supports /chapter-... and NovelBin's /cchapter-...
+  const baseNovelUrl = novelUrl.replace(/\/c?chapter-.*$/i, '');
 
   const { error } = await supabase
     .from('reading_history')
