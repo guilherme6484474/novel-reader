@@ -481,44 +481,63 @@ serve(async (req) => {
     };
 
     let response = await fetch(url, fetchOpts);
-    
-    // If direct fetch fails (403/503), try proxy fallbacks with fast timeouts
-    if (!response.ok) {
-      const status = response.status;
-      console.log(`Direct fetch failed with ${status}, trying proxies...`);
-      
-      const proxyUrls = [
-        `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-      ];
-      let proxyWorked = false;
+    let html = response.ok ? await response.text() : '';
+
+    // Proxy list used both when direct fetch fails AND when it returns a
+    // suspiciously short page (e.g. a challenge/redirect/error stub).
+    const proxyUrls = [
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+      `https://corsproxy.io/?${encodeURIComponent(url)}`,
+      `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+      `https://r.jina.ai/${url}`,
+    ];
+    const MIN_HTML = 20000; // novelbin chapter pages are ~200kb; <20kb is a stub
+
+    const tryProxies = async (label: string) => {
       for (const proxyUrl of proxyUrls) {
         try {
           const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 8000);
+          const timeout = setTimeout(() => controller.abort(), 15000);
           const proxyResp = await fetch(proxyUrl, {
             headers: { 'User-Agent': fetchOpts.headers['User-Agent'] },
+            redirect: 'follow',
             signal: controller.signal,
           });
           clearTimeout(timeout);
-          if (proxyResp.ok) {
-            response = proxyResp;
-            proxyWorked = true;
-            console.log(`Proxy fallback succeeded: ${proxyUrl.split('?')[0]}`);
-            break;
+          if (!proxyResp.ok) {
+            console.log(`Proxy ${proxyUrl.split('?')[0]} returned ${proxyResp.status}`);
+            continue;
           }
+          const text = await proxyResp.text();
+          if (text.length < MIN_HTML) {
+            console.log(`Proxy ${proxyUrl.split('?')[0]} returned short body (${text.length} bytes), skipping`);
+            continue;
+          }
+          console.log(`${label}: proxy succeeded via ${proxyUrl.split('?')[0]} (${text.length} bytes)`);
+          return text;
         } catch (e) {
           console.log('Proxy failed/timeout:', (e as Error).message);
         }
       }
-      if (!proxyWorked) {
+      return '';
+    };
+
+    if (!response.ok) {
+      const status = response.status;
+      console.log(`Direct fetch failed with ${status}, trying proxies...`);
+      const proxied = await tryProxies('Direct-fail');
+      if (!proxied) {
         return new Response(
           JSON.stringify({ error: `O site bloqueou o acesso (${status}). Tente usar um site alternativo como novelbin.com ou allnovelbin.net.` }),
           { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
+      html = proxied;
+    } else if (html.length < MIN_HTML && !hostname.includes('wtr-lab.com')) {
+      console.log(`Direct fetch returned suspiciously short body (${html.length} bytes), trying proxies...`);
+      const proxied = await tryProxies('Short-body');
+      if (proxied) html = proxied;
     }
-    const html = await response.text();
     console.log(`HTML length: ${html.length}, has next_url: ${html.includes('next_url')}, has prev_url: ${html.includes('prev_url')}`);
 
     // Extract title
