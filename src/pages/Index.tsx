@@ -253,16 +253,63 @@ const Index = () => {
     }
   }, []); // only on mount
 
-  // Save scroll position periodically
+  // Save scroll position to sessionStorage (always) and to Supabase (debounced)
   useEffect(() => {
-    const saveScroll = () => sessionStorage.setItem('nr-scrollPos', String(window.scrollY));
-    window.addEventListener('scroll', saveScroll, { passive: true });
-    document.addEventListener('visibilitychange', saveScroll);
-    return () => {
-      window.removeEventListener('scroll', saveScroll);
-      document.removeEventListener('visibilitychange', saveScroll);
+    let debounceId: number | undefined;
+    const computeAndPersist = (immediate: boolean) => {
+      const y = window.scrollY;
+      sessionStorage.setItem('nr-scrollPos', String(y));
+      const ch = chapterRef.current;
+      if (!user || !ch || !displayText) return;
+      const max = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+      const pct = Math.min(1, Math.max(0, y / max));
+      const baseUrl = computeBaseNovelUrl(url);
+      const flush = () => saveScrollPosition(user.id, baseUrl, y, pct);
+      if (immediate) flush();
+      else {
+        if (debounceId) window.clearTimeout(debounceId);
+        debounceId = window.setTimeout(flush, 2500);
+      }
     };
-  }, []);
+    const onScroll = () => computeAndPersist(false);
+    const onLeave = () => computeAndPersist(true);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    document.addEventListener('visibilitychange', onLeave);
+    window.addEventListener('pagehide', onLeave);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      document.removeEventListener('visibilitychange', onLeave);
+      window.removeEventListener('pagehide', onLeave);
+      if (debounceId) window.clearTimeout(debounceId);
+    };
+  }, [user, url, displayText]);
+
+  // Apply pending scroll restore when chapter content is rendered
+  useEffect(() => {
+    const pending = pendingScrollRestoreRef.current;
+    if (!pending || !displayText || restoredScrollRef.current) return;
+    restoredScrollRef.current = true;
+    pendingScrollRestoreRef.current = null;
+
+    const applyScroll = () => {
+      const max = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+      let target = pending.pos;
+      // If saved px exceeds current page or seems off, fall back to percent
+      if (pending.pos <= 0 || pending.pos > max * 1.1 || pending.pos < max * 0.05) {
+        target = Math.round(pending.pct * max);
+      }
+      if (target > 30) {
+        window.scrollTo({ top: target, behavior: 'instant' as ScrollBehavior });
+        const pct = Math.round(Math.min(1, target / max) * 100);
+        toast.success(`Retomado de onde parou (${pct}%)`, {
+          duration: 4000,
+          action: { label: 'Topo', onClick: () => window.scrollTo({ top: 0, behavior: 'smooth' }) },
+        });
+      }
+    };
+    // Wait for layout/fonts to settle
+    requestAnimationFrame(() => setTimeout(applyScroll, 150));
+  }, [displayText]);
 
   // Load TTS preferences on mount
   useEffect(() => {
