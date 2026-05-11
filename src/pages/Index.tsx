@@ -1151,9 +1151,20 @@ const Index = () => {
         <div className="mx-auto max-w-3xl px-4 sm:px-6 py-4 border-b border-border/60 bg-card/50">
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm font-semibold text-foreground">Histórico de Leitura</p>
-            <Button variant="ghost" size="icon" onClick={() => setShowHistory(false)} className="h-10 w-10">
-              <X className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost" size="sm"
+                onClick={() => setShowTrash(true)}
+                className="h-9 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                title="Lixeira"
+              >
+                <ArchiveRestore className="h-4 w-4" />
+                Lixeira{trash.length > 0 ? ` (${trash.length})` : ''}
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => setShowHistory(false)} className="h-10 w-10">
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
           {history.length === 0 ? (
             <p className="text-xs text-muted-foreground">Nenhum capítulo lido ainda.</p>
@@ -1163,7 +1174,7 @@ const Index = () => {
                 <div
                   key={h.id}
                   className="flex items-center gap-3 p-3 rounded-xl bg-background border border-border/40 active:border-primary/30 transition-colors cursor-pointer group"
-                  onClick={() => loadChapter(h.chapter_url)}
+                  onClick={() => handleHistoryItemClick(h)}
                 >
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
                     <BookOpen className="h-5 w-5 text-primary" />
@@ -1180,6 +1191,9 @@ const Index = () => {
                       </span>
                       {' · '}
                       {new Date(h.last_read_at).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      {(h.scroll_percent ?? 0) > 0.02 && (
+                        <> {' · '}<span className="text-primary/80">{Math.round((h.scroll_percent || 0) * 100)}%</span></>
+                      )}
                     </p>
                   </div>
                   <Button
@@ -1191,6 +1205,75 @@ const Index = () => {
                   </Button>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Trash Panel */}
+      {showTrash && (
+        <div className="mx-auto max-w-3xl px-4 sm:px-6 py-4 border-b border-border/60 bg-card/50">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-sm font-semibold text-foreground">Lixeira</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Itens são excluídos permanentemente após 30 dias.
+              </p>
+            </div>
+            <Button variant="ghost" size="icon" onClick={() => setShowTrash(false)} className="h-10 w-10">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          {trash.length === 0 ? (
+            <p className="text-xs text-muted-foreground">A lixeira está vazia.</p>
+          ) : (
+            <div className="space-y-2 max-h-[60vh] overflow-y-auto overscroll-contain">
+              {trash.map((h) => {
+                const deletedAt = h.deleted_at ? new Date(h.deleted_at) : null;
+                const daysLeft = deletedAt
+                  ? Math.max(0, 30 - Math.floor((Date.now() - deletedAt.getTime()) / 86400000))
+                  : 30;
+                return (
+                  <div
+                    key={h.id}
+                    className="flex items-center gap-3 p-3 rounded-xl bg-background border border-border/40"
+                  >
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
+                      <Trash2 className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-foreground truncate">{h.novel_title}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {(() => {
+                          if (h.chapter_title && h.chapter_title !== h.novel_title) return h.chapter_title;
+                          const match = h.chapter_url.match(/chapter[_-]?(\d+)/i);
+                          return match ? `Capítulo ${match[1]}` : 'Último capítulo';
+                        })()}
+                        {' · '}
+                        <span className="text-destructive/70">
+                          {daysLeft === 0 ? 'expira hoje' : `${daysLeft}d restantes`}
+                        </span>
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost" size="icon"
+                      className="h-10 w-10 text-primary shrink-0"
+                      onClick={() => handleRestoreFromTrash(h)}
+                      title="Restaurar"
+                    >
+                      <Undo2 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost" size="icon"
+                      className="h-10 w-10 text-destructive/70 active:text-destructive shrink-0"
+                      onClick={() => handlePurgeFromTrash(h.id)}
+                      title="Excluir permanentemente"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
