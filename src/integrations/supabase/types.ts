@@ -247,28 +247,37 @@ export type Database = {
         Row: {
           chapter_title: string | null
           chapter_url: string
+          deleted_at: string | null
           id: string
           last_read_at: string
           novel_title: string
           novel_url: string
+          scroll_percent: number
+          scroll_position: number
           user_id: string
         }
         Insert: {
           chapter_title?: string | null
           chapter_url: string
+          deleted_at?: string | null
           id?: string
           last_read_at?: string
           novel_title: string
           novel_url: string
+          scroll_percent?: number
+          scroll_position?: number
           user_id: string
         }
         Update: {
           chapter_title?: string | null
           chapter_url?: string
+          deleted_at?: string | null
           id?: string
           last_read_at?: string
           novel_title?: string
           novel_url?: string
+          scroll_percent?: number
+          scroll_position?: number
           user_id?: string
         }
         Relationships: []

@@ -12,7 +12,11 @@ import { PIPER_VOICES, getPiperVoice, setPiperVoice, downloadPiperVoice, isPiper
 import { usePwaInstall } from "@/hooks/use-pwa-install";
 import { scrapeChapter, translateChapterStream, type ChapterData } from "@/lib/api/novel";
 import { getCachedTranslation, setCachedTranslation, clearTranslationCache } from "@/lib/translation-cache";
-import { saveReadingProgress, getReadingHistory, deleteReadingEntry } from "@/lib/api/reading-history";
+import {
+  saveReadingProgress, getReadingHistory, deleteReadingEntry,
+  getDeletedHistory, restoreReadingEntry, purgeReadingEntry, purgeOldDeleted,
+  saveScrollPosition, computeBaseNovelUrl,
+} from "@/lib/api/reading-history";
 import { updateMediaSessionMetadata } from "@/lib/keep-awake";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -20,7 +24,7 @@ import {
   BookOpen, ChevronLeft, ChevronRight, Globe, Loader2,
   Pause, Play, Square, Volume2, Settings2, Search,
   Moon, Sun, LogIn, LogOut, History, X, Trash2, Minus, Plus, Type,
-  RefreshCw, Download, BarChart3, Radio, Mic,
+  RefreshCw, Download, BarChart3, Radio, Mic, Undo2, ArchiveRestore,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
@@ -45,6 +49,9 @@ type HistoryEntry = {
   chapter_url: string;
   chapter_title: string | null;
   last_read_at: string;
+  deleted_at?: string | null;
+  scroll_position?: number | null;
+  scroll_percent?: number | null;
 };
 
 // Component that renders text with word-level highlighting and click-to-read
@@ -183,6 +190,10 @@ const Index = () => {
   const [fontSize, setFontSize] = useState(() => Number(localStorage.getItem('nr-fontSize')) || 18);
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [showTrash, setShowTrash] = useState(false);
+  const [trash, setTrash] = useState<HistoryEntry[]>([]);
+  const pendingScrollRestoreRef = useRef<{ pos: number; pct: number } | null>(null);
+  const restoredScrollRef = useRef(false);
   const [autoRead, setAutoRead] = useState(() => localStorage.getItem('nr-autoRead') === 'true');
   const [audioMode, setAudioModeState] = useState<AudioPlaybackMode>(getAudioMode);
   const [cloudVoice, setCloudVoiceState] = useState(getCloudVoice);
@@ -242,16 +253,63 @@ const Index = () => {
     }
   }, []); // only on mount
 
-  // Save scroll position periodically
+  // Save scroll position to sessionStorage (always) and to Supabase (debounced)
   useEffect(() => {
-    const saveScroll = () => sessionStorage.setItem('nr-scrollPos', String(window.scrollY));
-    window.addEventListener('scroll', saveScroll, { passive: true });
-    document.addEventListener('visibilitychange', saveScroll);
-    return () => {
-      window.removeEventListener('scroll', saveScroll);
-      document.removeEventListener('visibilitychange', saveScroll);
+    let debounceId: number | undefined;
+    const computeAndPersist = (immediate: boolean) => {
+      const y = window.scrollY;
+      sessionStorage.setItem('nr-scrollPos', String(y));
+      const ch = chapterRef.current;
+      if (!user || !ch || !displayText) return;
+      const max = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+      const pct = Math.min(1, Math.max(0, y / max));
+      const baseUrl = computeBaseNovelUrl(url);
+      const flush = () => saveScrollPosition(user.id, baseUrl, y, pct);
+      if (immediate) flush();
+      else {
+        if (debounceId) window.clearTimeout(debounceId);
+        debounceId = window.setTimeout(flush, 2500);
+      }
     };
-  }, []);
+    const onScroll = () => computeAndPersist(false);
+    const onLeave = () => computeAndPersist(true);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    document.addEventListener('visibilitychange', onLeave);
+    window.addEventListener('pagehide', onLeave);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      document.removeEventListener('visibilitychange', onLeave);
+      window.removeEventListener('pagehide', onLeave);
+      if (debounceId) window.clearTimeout(debounceId);
+    };
+  }, [user, url, displayText]);
+
+  // Apply pending scroll restore when chapter content is rendered
+  useEffect(() => {
+    const pending = pendingScrollRestoreRef.current;
+    if (!pending || !displayText || restoredScrollRef.current) return;
+    restoredScrollRef.current = true;
+    pendingScrollRestoreRef.current = null;
+
+    const applyScroll = () => {
+      const max = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+      let target = pending.pos;
+      // If saved px exceeds current page or seems off, fall back to percent
+      if (pending.pos <= 0 || pending.pos > max * 1.1 || pending.pos < max * 0.05) {
+        target = Math.round(pending.pct * max);
+      }
+      if (target > 30) {
+        window.scrollTo({ top: target, behavior: 'instant' as ScrollBehavior });
+        const pct = Math.round(Math.min(1, target / max) * 100);
+        toast.success(`Retomado de onde parou (${pct}%)`, {
+          duration: 4000,
+          action: { label: 'Topo', onClick: () => window.scrollTo({ top: 0, behavior: 'smooth' }) },
+        });
+      }
+    };
+    // Wait for layout/fonts to settle
+    requestAnimationFrame(() => setTimeout(applyScroll, 150));
+  }, [displayText]);
 
   // Load TTS preferences on mount
   useEffect(() => {
@@ -287,18 +345,24 @@ const Index = () => {
   useEffect(() => {
     if (user) {
       getReadingHistory(user.id).then(setHistory);
+      // Auto-purge trash items older than 30 days, then load trash
+      purgeOldDeleted(user.id).finally(() => {
+        getDeletedHistory(user.id).then(setTrash);
+      });
     }
   }, [user]);
 
-  const loadChapter = async (chapterUrl: string) => {
+  const loadChapter = async (chapterUrl: string, opts?: { restoreScroll?: { pos: number; pct: number } }) => {
     // Cancel any in-flight translation
     if (abortRef.current) {
       abortRef.current.abort();
       abortRef.current = null;
     }
 
-    // Scroll to top
+    // Scroll to top (will be overridden if restore is requested)
     window.scrollTo({ top: 0, behavior: 'instant' });
+    restoredScrollRef.current = false;
+    pendingScrollRestoreRef.current = opts?.restoreScroll ?? null;
 
     setIsLoading(true);
     setIsTranslating(false);
@@ -517,8 +581,43 @@ const Index = () => {
   };
 
   const handleDeleteHistory = async (id: string) => {
-    await deleteReadingEntry(id);
+    const removed = history.find((h) => h.id === id);
     setHistory((prev) => prev.filter((h) => h.id !== id));
+    await deleteReadingEntry(id);
+    if (user) getDeletedHistory(user.id).then(setTrash);
+    toast.success('Movida para a lixeira', {
+      duration: 5000,
+      action: {
+        label: 'Desfazer',
+        onClick: async () => {
+          await restoreReadingEntry(id);
+          if (removed) setHistory((prev) => [{ ...removed, deleted_at: null }, ...prev]);
+          if (user) getDeletedHistory(user.id).then(setTrash);
+        },
+      },
+    });
+  };
+
+  const handleRestoreFromTrash = async (entry: HistoryEntry) => {
+    await restoreReadingEntry(entry.id);
+    setTrash((prev) => prev.filter((h) => h.id !== entry.id));
+    setHistory((prev) => [{ ...entry, deleted_at: null }, ...prev.filter((h) => h.id !== entry.id)]);
+    toast.success('Novel restaurada');
+  };
+
+  const handlePurgeFromTrash = async (id: string) => {
+    if (!confirm('Excluir permanentemente? Esta ação não pode ser desfeita.')) return;
+    await purgeReadingEntry(id);
+    setTrash((prev) => prev.filter((h) => h.id !== id));
+  };
+
+  const handleHistoryItemClick = (h: HistoryEntry) => {
+    loadChapter(h.chapter_url, {
+      restoreScroll: {
+        pos: Number(h.scroll_position) || 0,
+        pct: Number(h.scroll_percent) || 0,
+      },
+    });
   };
 
   const safeAreaBottom = 'max(env(safe-area-inset-bottom), 0px)';
@@ -1052,9 +1151,20 @@ const Index = () => {
         <div className="mx-auto max-w-3xl px-4 sm:px-6 py-4 border-b border-border/60 bg-card/50">
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm font-semibold text-foreground">Histórico de Leitura</p>
-            <Button variant="ghost" size="icon" onClick={() => setShowHistory(false)} className="h-10 w-10">
-              <X className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost" size="sm"
+                onClick={() => setShowTrash(true)}
+                className="h-9 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                title="Lixeira"
+              >
+                <ArchiveRestore className="h-4 w-4" />
+                Lixeira{trash.length > 0 ? ` (${trash.length})` : ''}
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => setShowHistory(false)} className="h-10 w-10">
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
           {history.length === 0 ? (
             <p className="text-xs text-muted-foreground">Nenhum capítulo lido ainda.</p>
@@ -1064,7 +1174,7 @@ const Index = () => {
                 <div
                   key={h.id}
                   className="flex items-center gap-3 p-3 rounded-xl bg-background border border-border/40 active:border-primary/30 transition-colors cursor-pointer group"
-                  onClick={() => loadChapter(h.chapter_url)}
+                  onClick={() => handleHistoryItemClick(h)}
                 >
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
                     <BookOpen className="h-5 w-5 text-primary" />
@@ -1081,6 +1191,9 @@ const Index = () => {
                       </span>
                       {' · '}
                       {new Date(h.last_read_at).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      {(h.scroll_percent ?? 0) > 0.02 && (
+                        <> {' · '}<span className="text-primary/80">{Math.round((h.scroll_percent || 0) * 100)}%</span></>
+                      )}
                     </p>
                   </div>
                   <Button
@@ -1092,6 +1205,75 @@ const Index = () => {
                   </Button>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Trash Panel */}
+      {showTrash && (
+        <div className="mx-auto max-w-3xl px-4 sm:px-6 py-4 border-b border-border/60 bg-card/50">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-sm font-semibold text-foreground">Lixeira</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Itens são excluídos permanentemente após 30 dias.
+              </p>
+            </div>
+            <Button variant="ghost" size="icon" onClick={() => setShowTrash(false)} className="h-10 w-10">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          {trash.length === 0 ? (
+            <p className="text-xs text-muted-foreground">A lixeira está vazia.</p>
+          ) : (
+            <div className="space-y-2 max-h-[60vh] overflow-y-auto overscroll-contain">
+              {trash.map((h) => {
+                const deletedAt = h.deleted_at ? new Date(h.deleted_at) : null;
+                const daysLeft = deletedAt
+                  ? Math.max(0, 30 - Math.floor((Date.now() - deletedAt.getTime()) / 86400000))
+                  : 30;
+                return (
+                  <div
+                    key={h.id}
+                    className="flex items-center gap-3 p-3 rounded-xl bg-background border border-border/40"
+                  >
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
+                      <Trash2 className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-foreground truncate">{h.novel_title}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {(() => {
+                          if (h.chapter_title && h.chapter_title !== h.novel_title) return h.chapter_title;
+                          const match = h.chapter_url.match(/chapter[_-]?(\d+)/i);
+                          return match ? `Capítulo ${match[1]}` : 'Último capítulo';
+                        })()}
+                        {' · '}
+                        <span className="text-destructive/70">
+                          {daysLeft === 0 ? 'expira hoje' : `${daysLeft}d restantes`}
+                        </span>
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost" size="icon"
+                      className="h-10 w-10 text-primary shrink-0"
+                      onClick={() => handleRestoreFromTrash(h)}
+                      title="Restaurar"
+                    >
+                      <Undo2 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost" size="icon"
+                      className="h-10 w-10 text-destructive/70 active:text-destructive shrink-0"
+                      onClick={() => handlePurgeFromTrash(h.id)}
+                      title="Excluir permanentemente"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -1125,7 +1307,7 @@ const Index = () => {
                       <div
                         key={novel.novel_url}
                         className="flex items-center gap-4 p-4 rounded-2xl bg-card border border-border/60 hover:border-primary/40 hover:shadow-md transition-all cursor-pointer group"
-                        onClick={() => loadChapter(novel.chapter_url)}
+                        onClick={() => handleHistoryItemClick(novel)}
                       >
                         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 group-hover:bg-primary/15 transition-colors">
                           <BookOpen className="h-5 w-5 text-primary" />
