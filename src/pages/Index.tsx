@@ -1307,7 +1307,7 @@ const Index = () => {
                       <div
                         key={novel.novel_url}
                         className="flex items-center gap-4 p-4 rounded-2xl bg-card border border-border/60 hover:border-primary/40 hover:shadow-md transition-all cursor-pointer group"
-                        onClick={() => loadChapter(novel.chapter_url)}
+                        onClick={() => handleHistoryItemClick(novel)}
                       >
                         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 group-hover:bg-primary/15 transition-colors">
                           <BookOpen className="h-5 w-5 text-primary" />
