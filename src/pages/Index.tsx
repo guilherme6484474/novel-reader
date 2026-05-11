@@ -190,6 +190,10 @@ const Index = () => {
   const [fontSize, setFontSize] = useState(() => Number(localStorage.getItem('nr-fontSize')) || 18);
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [showTrash, setShowTrash] = useState(false);
+  const [trash, setTrash] = useState<HistoryEntry[]>([]);
+  const pendingScrollRestoreRef = useRef<{ pos: number; pct: number } | null>(null);
+  const restoredScrollRef = useRef(false);
   const [autoRead, setAutoRead] = useState(() => localStorage.getItem('nr-autoRead') === 'true');
   const [audioMode, setAudioModeState] = useState<AudioPlaybackMode>(getAudioMode);
   const [cloudVoice, setCloudVoiceState] = useState(getCloudVoice);
