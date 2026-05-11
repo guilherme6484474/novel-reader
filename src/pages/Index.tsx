@@ -345,18 +345,24 @@ const Index = () => {
   useEffect(() => {
     if (user) {
       getReadingHistory(user.id).then(setHistory);
+      // Auto-purge trash items older than 30 days, then load trash
+      purgeOldDeleted(user.id).finally(() => {
+        getDeletedHistory(user.id).then(setTrash);
+      });
     }
   }, [user]);
 
-  const loadChapter = async (chapterUrl: string) => {
+  const loadChapter = async (chapterUrl: string, opts?: { restoreScroll?: { pos: number; pct: number } }) => {
     // Cancel any in-flight translation
     if (abortRef.current) {
       abortRef.current.abort();
       abortRef.current = null;
     }
 
-    // Scroll to top
+    // Scroll to top (will be overridden if restore is requested)
     window.scrollTo({ top: 0, behavior: 'instant' });
+    restoredScrollRef.current = false;
+    pendingScrollRestoreRef.current = opts?.restoreScroll ?? null;
 
     setIsLoading(true);
     setIsTranslating(false);
