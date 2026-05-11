@@ -581,8 +581,43 @@ const Index = () => {
   };
 
   const handleDeleteHistory = async (id: string) => {
-    await deleteReadingEntry(id);
+    const removed = history.find((h) => h.id === id);
     setHistory((prev) => prev.filter((h) => h.id !== id));
+    await deleteReadingEntry(id);
+    if (user) getDeletedHistory(user.id).then(setTrash);
+    toast.success('Movida para a lixeira', {
+      duration: 5000,
+      action: {
+        label: 'Desfazer',
+        onClick: async () => {
+          await restoreReadingEntry(id);
+          if (removed) setHistory((prev) => [{ ...removed, deleted_at: null }, ...prev]);
+          if (user) getDeletedHistory(user.id).then(setTrash);
+        },
+      },
+    });
+  };
+
+  const handleRestoreFromTrash = async (entry: HistoryEntry) => {
+    await restoreReadingEntry(entry.id);
+    setTrash((prev) => prev.filter((h) => h.id !== entry.id));
+    setHistory((prev) => [{ ...entry, deleted_at: null }, ...prev.filter((h) => h.id !== entry.id)]);
+    toast.success('Novel restaurada');
+  };
+
+  const handlePurgeFromTrash = async (id: string) => {
+    if (!confirm('Excluir permanentemente? Esta ação não pode ser desfeita.')) return;
+    await purgeReadingEntry(id);
+    setTrash((prev) => prev.filter((h) => h.id !== id));
+  };
+
+  const handleHistoryItemClick = (h: HistoryEntry) => {
+    loadChapter(h.chapter_url, {
+      restoreScroll: {
+        pos: Number(h.scroll_position) || 0,
+        pct: Number(h.scroll_percent) || 0,
+      },
+    });
   };
 
   const safeAreaBottom = 'max(env(safe-area-inset-bottom), 0px)';
