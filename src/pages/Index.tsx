@@ -12,7 +12,11 @@ import { PIPER_VOICES, getPiperVoice, setPiperVoice, downloadPiperVoice, isPiper
 import { usePwaInstall } from "@/hooks/use-pwa-install";
 import { scrapeChapter, translateChapterStream, type ChapterData } from "@/lib/api/novel";
 import { getCachedTranslation, setCachedTranslation, clearTranslationCache } from "@/lib/translation-cache";
-import { saveReadingProgress, getReadingHistory, deleteReadingEntry } from "@/lib/api/reading-history";
+import {
+  saveReadingProgress, getReadingHistory, deleteReadingEntry,
+  getDeletedHistory, restoreReadingEntry, purgeReadingEntry, purgeOldDeleted,
+  saveScrollPosition, computeBaseNovelUrl,
+} from "@/lib/api/reading-history";
 import { updateMediaSessionMetadata } from "@/lib/keep-awake";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -20,7 +24,7 @@ import {
   BookOpen, ChevronLeft, ChevronRight, Globe, Loader2,
   Pause, Play, Square, Volume2, Settings2, Search,
   Moon, Sun, LogIn, LogOut, History, X, Trash2, Minus, Plus, Type,
-  RefreshCw, Download, BarChart3, Radio, Mic,
+  RefreshCw, Download, BarChart3, Radio, Mic, Undo2, ArchiveRestore,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
@@ -45,6 +49,9 @@ type HistoryEntry = {
   chapter_url: string;
   chapter_title: string | null;
   last_read_at: string;
+  deleted_at?: string | null;
+  scroll_position?: number | null;
+  scroll_percent?: number | null;
 };
 
 // Component that renders text with word-level highlighting and click-to-read
