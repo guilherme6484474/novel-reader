@@ -470,7 +470,7 @@ function normalizeCompareUrl(value: string): string {
 }
 
 function getNovelbinNovelId(parsedUrl: URL): string {
-  return decodeURIComponent(parsedUrl.pathname.match(/\/b\/([^/]+)/)?.[1] || '');
+  return decodeURIComponent(parsedUrl.pathname.match(/\/(?:b|novel-book)\/([^/]+)/)?.[1] || '');
 }
 
 function getNovelbinChapterNumber(value: string): number | null {
