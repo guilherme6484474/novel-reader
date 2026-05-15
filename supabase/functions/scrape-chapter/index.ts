@@ -486,20 +486,49 @@ async function getNovelbinCatalogContext(
 
   try {
     const archiveUrl = `${parsedUrl.origin}/ajax/chapter-option?novelId=${encodeURIComponent(novelId)}`;
+    const catalogHeaders: Record<string, string> = {
+      'User-Agent': userAgent,
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Referer': `${parsedUrl.origin}/b/${novelId}`,
+    };
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12000);
     const resp = await fetch(archiveUrl, {
-      headers: { 'User-Agent': userAgent, 'Referer': `${parsedUrl.origin}/b/${novelId}` },
+      headers: catalogHeaders,
       redirect: 'follow',
       signal: controller.signal,
     });
     clearTimeout(timeout);
-    if (!resp.ok) {
-      console.log(`NovelBin chapter catalog returned ${resp.status}`);
+    let catalogResp = resp;
+
+    if (!catalogResp.ok && (catalogResp.status === 403 || catalogResp.status === 419)) {
+      console.log(`NovelBin chapter catalog returned ${catalogResp.status}, warming cookies...`);
+      const pageResp = await fetch(`${parsedUrl.origin}/b/${novelId}`, {
+        headers: { 'User-Agent': userAgent, 'Accept': catalogHeaders.Accept },
+        redirect: 'follow',
+      });
+      const setCookie = pageResp.headers.get('set-cookie') || '';
+      await pageResp.text().catch(() => '');
+      const cookie = setCookie
+        .split(/,(?=\s*[^;,=]+=[^;,]+)/)
+        .map((part) => part.split(';')[0].trim())
+        .filter(Boolean)
+        .join('; ');
+      if (cookie) {
+        catalogResp = await fetch(archiveUrl, {
+          headers: { ...catalogHeaders, Cookie: cookie },
+          redirect: 'follow',
+        });
+      }
+    }
+
+    if (!catalogResp.ok) {
+      console.log(`NovelBin chapter catalog returned ${catalogResp.status}`);
       return null;
     }
 
-    const html = await resp.text();
+    const html = await catalogResp.text();
     const items: Array<{ url: string; number: number | null; title: string }> = [];
     const optionRegex = /<option\b[^>]*value="([^"]+)"[^>]*>([\s\S]*?)<\/option>/gi;
     let match: RegExpExecArray | null;
