@@ -329,7 +329,53 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      nav_public_community_reports: {
+        Row: {
+          alert_id: string | null
+          created_at: string | null
+          description: string | null
+          id: string | null
+          is_anonymous: boolean | null
+          latitude: number | null
+          longitude: number | null
+          report_type: string | null
+          status: string | null
+          title: string | null
+        }
+        Insert: {
+          alert_id?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string | null
+          is_anonymous?: boolean | null
+          latitude?: number | null
+          longitude?: number | null
+          report_type?: string | null
+          status?: string | null
+          title?: string | null
+        }
+        Update: {
+          alert_id?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string | null
+          is_anonymous?: boolean | null
+          latitude?: number | null
+          longitude?: number | null
+          report_type?: string | null
+          status?: string | null
+          title?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nav_community_reports_alert_id_fkey"
+            columns: ["alert_id"]
+            isOneToOne: false
+            referencedRelation: "nav_security_alerts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       has_role: {

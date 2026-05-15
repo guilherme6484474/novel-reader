@@ -446,7 +446,123 @@ async function handleWtrLab(url: string, parsedUrl: URL): Promise<Response> {
   );
 }
 
-function parseJinaMarkdown(md: string): { title: string; content: string } {
+function normalizeCompareUrl(value: string): string {
+  try {
+    const parsed = new URL(value);
+    parsed.hash = '';
+    parsed.search = '';
+    return parsed.toString().replace(/\/$/, '');
+  } catch {
+    return value.replace(/[?#].*$/, '').replace(/\/$/, '');
+  }
+}
+
+function getNovelbinNovelId(parsedUrl: URL): string {
+  return decodeURIComponent(parsedUrl.pathname.match(/\/b\/([^/]+)/)?.[1] || '');
+}
+
+function getNovelbinChapterNumber(value: string): number | null {
+  const match = value.match(/\/c?chapter-(\d+)(?:\b|[-/?#])/i);
+  return match ? Number(match[1]) : null;
+}
+
+function isBareNovelbinChapterUrl(value: string): boolean {
+  return /\/c?chapter-\d+\/?(?:[?#].*)?$/i.test(value);
+}
+
+function extractJinaNavLinks(md: string): { next: string; prev: string } {
+  const prev = md.match(/\[Prev(?:ious)?\s+Chapter\]\(([^)\s]+)(?:\s+"[^"]*")?\)/i)?.[1] || '';
+  const next = md.match(/\[Next\s+Chapter\]\(([^)\s]+)(?:\s+"[^"]*")?\)/i)?.[1] || '';
+  return { next, prev };
+}
+
+async function getNovelbinCatalogContext(
+  currentUrl: string,
+  parsedUrl: URL,
+  userAgent: string,
+): Promise<{ current: string; next: string; prev: string; title: string } | null> {
+  const novelId = getNovelbinNovelId(parsedUrl);
+  if (!novelId) return null;
+
+  try {
+    const archiveUrl = `${parsedUrl.origin}/ajax/chapter-option?novelId=${encodeURIComponent(novelId)}`;
+    const catalogHeaders: Record<string, string> = {
+      'User-Agent': userAgent,
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Referer': `${parsedUrl.origin}/b/${novelId}`,
+    };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    const resp = await fetch(archiveUrl, {
+      headers: catalogHeaders,
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    let catalogResp = resp;
+
+    if (!catalogResp.ok && (catalogResp.status === 403 || catalogResp.status === 419)) {
+      console.log(`NovelBin chapter catalog returned ${catalogResp.status}, warming cookies...`);
+      const pageResp = await fetch(`${parsedUrl.origin}/b/${novelId}`, {
+        headers: { 'User-Agent': userAgent, 'Accept': catalogHeaders.Accept },
+        redirect: 'follow',
+      });
+      const setCookie = pageResp.headers.get('set-cookie') || '';
+      await pageResp.text().catch(() => '');
+      const cookie = setCookie
+        .split(/,(?=\s*[^;,=]+=[^;,]+)/)
+        .map((part) => part.split(';')[0].trim())
+        .filter(Boolean)
+        .join('; ');
+      if (cookie) {
+        catalogResp = await fetch(archiveUrl, {
+          headers: { ...catalogHeaders, Cookie: cookie },
+          redirect: 'follow',
+        });
+      }
+    }
+
+    if (!catalogResp.ok) {
+      console.log(`NovelBin chapter catalog returned ${catalogResp.status}`);
+      return null;
+    }
+
+    const html = await catalogResp.text();
+    const items: Array<{ url: string; number: number | null; title: string }> = [];
+    const optionRegex = /<option\b[^>]*value="([^"]+)"[^>]*>([\s\S]*?)<\/option>/gi;
+    let match: RegExpExecArray | null;
+    while ((match = optionRegex.exec(html)) !== null) {
+      const chapterUrl = match[1].replace(/&amp;/g, '&');
+      items.push({
+        url: chapterUrl,
+        number: getNovelbinChapterNumber(chapterUrl),
+        title: cleanHtml(match[2]).replace(/\s+/g, ' ').trim(),
+      });
+    }
+
+    if (!items.length) return null;
+    const normalizedCurrent = normalizeCompareUrl(currentUrl);
+    const currentNumber = getNovelbinChapterNumber(currentUrl);
+    let index = items.findIndex((item) => normalizeCompareUrl(item.url) === normalizedCurrent);
+    if (index === -1 && currentNumber !== null) {
+      index = items.findIndex((item) => item.number === currentNumber);
+    }
+    if (index === -1) return null;
+
+    return {
+      current: items[index].url,
+      prev: index > 0 ? items[index - 1].url : '',
+      next: index < items.length - 1 ? items[index + 1].url : '',
+      title: items[index].title,
+    };
+  } catch (e) {
+    console.log('NovelBin chapter catalog failed:', (e as Error).message);
+    return null;
+  }
+}
+
+function parseJinaMarkdown(md: string, sourceUrl = '', hostname = ''): { title: string; content: string; next: string; prev: string } {
   // Jina Reader format:
   //   Title: ...
   //   URL Source: ...
@@ -458,6 +574,34 @@ function parseJinaMarkdown(md: string): { title: string; content: string } {
   if (titleMatch) title = titleMatch[1].trim();
   const idx = md.indexOf('Markdown Content:');
   if (idx !== -1) body = md.slice(idx + 'Markdown Content:'.length);
+  const nav = extractJinaNavLinks(md);
+
+  if (hostname.includes('novelbin')) {
+    const chapterNumber = getNovelbinChapterNumber(sourceUrl);
+    const headingRegex = chapterNumber !== null
+      ? new RegExp(`^##\\s*\\[[^\\]]*Chapter\\s+${chapterNumber}\\b[^\\]]*\\]\\([^)]*\\)\\s*$`, 'im')
+      : /^##\s*\[[^\]]*Chapter\s+\d+\b[^\]]*\]\([^)]*\)\s*$/im;
+    const heading = body.match(headingRegex);
+    if (!heading || heading.index === undefined) {
+      console.log('Jina NovelBin markdown missing exact chapter heading, ignoring page chrome');
+      return { title, content: '', next: nav.next, prev: nav.prev };
+    }
+
+    body = body.slice(heading.index + heading[0].length);
+    const lines = body.split('\n');
+    while (lines.length) {
+      const line = lines[0].trim();
+      if (!line || line === '* * *' || line.startsWith('[](javascript:') || /\[(?:Prev|Previous|Next)\s+Chapter\]/i.test(line)) {
+        lines.shift();
+        continue;
+      }
+      break;
+    }
+    body = lines.join('\n');
+    const endMatch = body.search(/\n\s*(?:\* \* \*\s*)?(?:\[\]\(javascript:|\[(?:Prev|Previous|Next)\s+Chapter\]|Comments?|Chapter Comments|Commented on)\b/i);
+    if (endMatch > 500) body = body.slice(0, endMatch);
+  }
+
   // Strip markdown links/images, headers, navigation chrome
   body = body
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
@@ -470,7 +614,7 @@ function parseJinaMarkdown(md: string): { title: string; content: string } {
     .trim();
   // Build paragraph-ish content
   const paragraphs = body.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p.length > 20);
-  return { title, content: paragraphs.join('\n\n') };
+  return { title, content: paragraphs.join('\n\n'), next: nav.next, prev: nav.prev };
 }
 
 serve(async (req) => {
@@ -491,6 +635,8 @@ serve(async (req) => {
     const parsedUrl = new URL(url);
     const hostname = parsedUrl.hostname;
     console.log('Scraping URL:', url, '| Host:', hostname);
+    let canonicalUrl = url;
+    let catalogContext: { current: string; next: string; prev: string; title: string } | null = null;
 
     // === wtr-lab.com: use internal API directly ===
     if (hostname.includes('wtr-lab.com')) {
@@ -507,7 +653,15 @@ serve(async (req) => {
       },
     };
 
-    let response = await fetch(url, fetchOpts);
+    if (hostname.includes('novelbin')) {
+      catalogContext = await getNovelbinCatalogContext(url, parsedUrl, fetchOpts.headers['User-Agent']);
+      if (catalogContext?.current && normalizeCompareUrl(catalogContext.current) !== normalizeCompareUrl(url)) {
+        canonicalUrl = catalogContext.current;
+        console.log(`NovelBin canonical chapter URL resolved: ${canonicalUrl}`);
+      }
+    }
+
+    let response = await fetch(canonicalUrl, fetchOpts);
     let html = response.ok ? await response.text() : '';
     let jinaMarkdown = '';
 
@@ -516,11 +670,11 @@ serve(async (req) => {
     // when the body is large but doesn't contain real chapter markup
     // (e.g. corsproxy returning a generic landing/interstitial page).
     const htmlProxies = [
-      `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-      `https://corsproxy.io/?${encodeURIComponent(url)}`,
-      `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(canonicalUrl)}`,
+      `https://corsproxy.io/?${encodeURIComponent(canonicalUrl)}`,
+      `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(canonicalUrl)}`,
     ];
-    const jinaProxy = `https://r.jina.ai/${url}`;
+    const jinaProxy = `https://r.jina.ai/${canonicalUrl}`;
     const MIN_HTML = 20000; // novelbin chapter pages are ~200kb; <20kb is a stub
 
     // Per-host markers that prove the response contains a real chapter page.
@@ -642,6 +796,7 @@ serve(async (req) => {
     if (h1) title = cleanHtml(h1[1]);
     else if (ogTitle) title = ogTitle[1];
     else if (titleTag) title = cleanHtml(titleTag[1]);
+    if (catalogContext?.title) title = catalogContext.title;
 
     // Extract content with site-aware selectors
     let content = html ? trimChapterContent(extractContent(html, hostname), title, hostname) : '';
@@ -653,7 +808,7 @@ serve(async (req) => {
         jinaMarkdown = await tryJinaMarkdown();
       }
       if (jinaMarkdown) {
-        const parsed = parseJinaMarkdown(jinaMarkdown);
+        const parsed = parseJinaMarkdown(jinaMarkdown, canonicalUrl, hostname);
         if (parsed.content && parsed.content.length > (content?.length || 0)) {
           content = parsed.content;
           if (!title && parsed.title) title = parsed.title;
@@ -670,9 +825,23 @@ serve(async (req) => {
       prevChapterUrl = nav.prev;
     }
 
+    if ((!nextChapterUrl || !prevChapterUrl || (hostname.includes('novelbin') && (isBareNovelbinChapterUrl(nextChapterUrl) || isBareNovelbinChapterUrl(prevChapterUrl))))) {
+      if (!jinaMarkdown) jinaMarkdown = await tryJinaMarkdown();
+      if (jinaMarkdown) {
+        const jinaNav = extractJinaNavLinks(jinaMarkdown);
+        if (!nextChapterUrl || isBareNovelbinChapterUrl(nextChapterUrl)) nextChapterUrl = jinaNav.next;
+        if (!prevChapterUrl || isBareNovelbinChapterUrl(prevChapterUrl)) prevChapterUrl = jinaNav.prev;
+      }
+    }
+
     // Strip broken "/undefined" links produced by SSR placeholders (e.g. novelbin)
     if (nextChapterUrl.endsWith('/undefined') || nextChapterUrl.includes('undefined')) nextChapterUrl = '';
     if (prevChapterUrl.endsWith('/undefined') || prevChapterUrl.includes('undefined')) prevChapterUrl = '';
+
+    if (catalogContext) {
+      if (!nextChapterUrl || isBareNovelbinChapterUrl(nextChapterUrl)) nextChapterUrl = catalogContext.next;
+      if (!prevChapterUrl || isBareNovelbinChapterUrl(prevChapterUrl)) prevChapterUrl = catalogContext.prev;
+    }
 
     // URL-based chapter navigation fallback for sites with sequential chapter URLs
     if (hostname.includes('wtr-lab.com') || hostname.includes('freewebnovel')) {
@@ -691,15 +860,15 @@ serve(async (req) => {
     // novelbin uses /cchapter-N (and sometimes /chapter-N) sequential URLs;
     // SSR often renders next as /undefined, so derive from current URL.
     if (hostname.includes('novelbin')) {
-      const m = url.match(/\/c?chapter-(\d+)/);
+      const m = canonicalUrl.match(/\/c?chapter-(\d+)/);
       if (m) {
         const chNum = parseInt(m[1], 10);
-        const prefix = url.includes('/cchapter-') ? 'cchapter' : 'chapter';
+        const prefix = canonicalUrl.includes('/cchapter-') ? 'cchapter' : 'chapter';
         if (!nextChapterUrl) {
-          nextChapterUrl = url.replace(/\/c?chapter-\d+[^/?#]*/, `/${prefix}-${chNum + 1}`);
+          nextChapterUrl = canonicalUrl.replace(/\/c?chapter-\d+[^/?#]*/, `/${prefix}-${chNum + 1}`);
         }
         if (!prevChapterUrl && chNum > 1) {
-          prevChapterUrl = url.replace(/\/c?chapter-\d+[^/?#]*/, `/${prefix}-${chNum - 1}`);
+          prevChapterUrl = canonicalUrl.replace(/\/c?chapter-\d+[^/?#]*/, `/${prefix}-${chNum - 1}`);
         }
       }
     }
