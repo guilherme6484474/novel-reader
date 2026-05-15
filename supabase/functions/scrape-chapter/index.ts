@@ -606,6 +606,8 @@ serve(async (req) => {
     const parsedUrl = new URL(url);
     const hostname = parsedUrl.hostname;
     console.log('Scraping URL:', url, '| Host:', hostname);
+    let canonicalUrl = url;
+    let catalogContext: { current: string; next: string; prev: string; title: string } | null = null;
 
     // === wtr-lab.com: use internal API directly ===
     if (hostname.includes('wtr-lab.com')) {
@@ -622,7 +624,15 @@ serve(async (req) => {
       },
     };
 
-    let response = await fetch(url, fetchOpts);
+    if (hostname.includes('novelbin')) {
+      catalogContext = await getNovelbinCatalogContext(url, parsedUrl, fetchOpts.headers['User-Agent']);
+      if (catalogContext?.current && normalizeCompareUrl(catalogContext.current) !== normalizeCompareUrl(url)) {
+        canonicalUrl = catalogContext.current;
+        console.log(`NovelBin canonical chapter URL resolved: ${canonicalUrl}`);
+      }
+    }
+
+    let response = await fetch(canonicalUrl, fetchOpts);
     let html = response.ok ? await response.text() : '';
     let jinaMarkdown = '';
 
@@ -631,11 +641,11 @@ serve(async (req) => {
     // when the body is large but doesn't contain real chapter markup
     // (e.g. corsproxy returning a generic landing/interstitial page).
     const htmlProxies = [
-      `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-      `https://corsproxy.io/?${encodeURIComponent(url)}`,
-      `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(canonicalUrl)}`,
+      `https://corsproxy.io/?${encodeURIComponent(canonicalUrl)}`,
+      `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(canonicalUrl)}`,
     ];
-    const jinaProxy = `https://r.jina.ai/${url}`;
+    const jinaProxy = `https://r.jina.ai/${canonicalUrl}`;
     const MIN_HTML = 20000; // novelbin chapter pages are ~200kb; <20kb is a stub
 
     // Per-host markers that prove the response contains a real chapter page.
