@@ -767,6 +767,7 @@ serve(async (req) => {
     if (h1) title = cleanHtml(h1[1]);
     else if (ogTitle) title = ogTitle[1];
     else if (titleTag) title = cleanHtml(titleTag[1]);
+    if (catalogContext?.title) title = catalogContext.title;
 
     // Extract content with site-aware selectors
     let content = html ? trimChapterContent(extractContent(html, hostname), title, hostname) : '';
@@ -778,7 +779,7 @@ serve(async (req) => {
         jinaMarkdown = await tryJinaMarkdown();
       }
       if (jinaMarkdown) {
-        const parsed = parseJinaMarkdown(jinaMarkdown);
+        const parsed = parseJinaMarkdown(jinaMarkdown, canonicalUrl, hostname);
         if (parsed.content && parsed.content.length > (content?.length || 0)) {
           content = parsed.content;
           if (!title && parsed.title) title = parsed.title;
@@ -795,9 +796,20 @@ serve(async (req) => {
       prevChapterUrl = nav.prev;
     }
 
+    if ((!nextChapterUrl || !prevChapterUrl) && jinaMarkdown) {
+      const jinaNav = extractJinaNavLinks(jinaMarkdown);
+      if (!nextChapterUrl) nextChapterUrl = jinaNav.next;
+      if (!prevChapterUrl) prevChapterUrl = jinaNav.prev;
+    }
+
     // Strip broken "/undefined" links produced by SSR placeholders (e.g. novelbin)
     if (nextChapterUrl.endsWith('/undefined') || nextChapterUrl.includes('undefined')) nextChapterUrl = '';
     if (prevChapterUrl.endsWith('/undefined') || prevChapterUrl.includes('undefined')) prevChapterUrl = '';
+
+    if (catalogContext) {
+      if (!nextChapterUrl || isBareNovelbinChapterUrl(nextChapterUrl)) nextChapterUrl = catalogContext.next;
+      if (!prevChapterUrl || isBareNovelbinChapterUrl(prevChapterUrl)) prevChapterUrl = catalogContext.prev;
+    }
 
     // URL-based chapter navigation fallback for sites with sequential chapter URLs
     if (hostname.includes('wtr-lab.com') || hostname.includes('freewebnovel')) {
@@ -816,15 +828,15 @@ serve(async (req) => {
     // novelbin uses /cchapter-N (and sometimes /chapter-N) sequential URLs;
     // SSR often renders next as /undefined, so derive from current URL.
     if (hostname.includes('novelbin')) {
-      const m = url.match(/\/c?chapter-(\d+)/);
+      const m = canonicalUrl.match(/\/c?chapter-(\d+)/);
       if (m) {
         const chNum = parseInt(m[1], 10);
-        const prefix = url.includes('/cchapter-') ? 'cchapter' : 'chapter';
+        const prefix = canonicalUrl.includes('/cchapter-') ? 'cchapter' : 'chapter';
         if (!nextChapterUrl) {
-          nextChapterUrl = url.replace(/\/c?chapter-\d+[^/?#]*/, `/${prefix}-${chNum + 1}`);
+          nextChapterUrl = canonicalUrl.replace(/\/c?chapter-\d+[^/?#]*/, `/${prefix}-${chNum + 1}`);
         }
         if (!prevChapterUrl && chNum > 1) {
-          prevChapterUrl = url.replace(/\/c?chapter-\d+[^/?#]*/, `/${prefix}-${chNum - 1}`);
+          prevChapterUrl = canonicalUrl.replace(/\/c?chapter-\d+[^/?#]*/, `/${prefix}-${chNum - 1}`);
         }
       }
     }
