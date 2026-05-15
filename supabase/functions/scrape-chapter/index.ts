@@ -825,10 +825,13 @@ serve(async (req) => {
       prevChapterUrl = nav.prev;
     }
 
-    if ((!nextChapterUrl || !prevChapterUrl) && jinaMarkdown) {
-      const jinaNav = extractJinaNavLinks(jinaMarkdown);
-      if (!nextChapterUrl) nextChapterUrl = jinaNav.next;
-      if (!prevChapterUrl) prevChapterUrl = jinaNav.prev;
+    if ((!nextChapterUrl || !prevChapterUrl || (hostname.includes('novelbin') && (isBareNovelbinChapterUrl(nextChapterUrl) || isBareNovelbinChapterUrl(prevChapterUrl))))) {
+      if (!jinaMarkdown) jinaMarkdown = await tryJinaMarkdown();
+      if (jinaMarkdown) {
+        const jinaNav = extractJinaNavLinks(jinaMarkdown);
+        if (!nextChapterUrl || isBareNovelbinChapterUrl(nextChapterUrl)) nextChapterUrl = jinaNav.next;
+        if (!prevChapterUrl || isBareNovelbinChapterUrl(prevChapterUrl)) prevChapterUrl = jinaNav.prev;
+      }
     }
 
     // Strip broken "/undefined" links produced by SSR placeholders (e.g. novelbin)
