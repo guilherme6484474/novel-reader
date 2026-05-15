@@ -704,6 +704,9 @@ serve(async (req) => {
 
     if (hostname.includes('novelbin')) {
       catalogContext = await getNovelbinCatalogContext(url, parsedUrl, fetchOpts.headers['User-Agent']);
+      if (!catalogContext) {
+        catalogContext = await getNovelbinMirrorCatalogContext(url, parsedUrl, fetchOpts.headers['User-Agent']);
+      }
       if (catalogContext?.current && normalizeCompareUrl(catalogContext.current) !== normalizeCompareUrl(url)) {
         canonicalUrl = catalogContext.current;
         console.log(`NovelBin canonical chapter URL resolved: ${canonicalUrl}`);
