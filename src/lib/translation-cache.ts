@@ -11,7 +11,7 @@ const MAX_ENTRIES = 200;
 // Bump this when scraper output format changes to invalidate old cached
 // translations that may contain garbage (e.g. comment-template JS leakage
 // from novelbin before the script-stripping fix).
-const CACHE_VERSION = "v2";
+const CACHE_VERSION = "v3";
 
 interface CacheEntry {
   key: string;

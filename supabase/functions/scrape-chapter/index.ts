@@ -446,6 +446,33 @@ async function handleWtrLab(url: string, parsedUrl: URL): Promise<Response> {
   );
 }
 
+function parseJinaMarkdown(md: string): { title: string; content: string } {
+  // Jina Reader format:
+  //   Title: ...
+  //   URL Source: ...
+  //   Markdown Content:
+  //   <body>
+  let title = '';
+  let body = md;
+  const titleMatch = md.match(/^Title:\s*(.+)$/m);
+  if (titleMatch) title = titleMatch[1].trim();
+  const idx = md.indexOf('Markdown Content:');
+  if (idx !== -1) body = md.slice(idx + 'Markdown Content:'.length);
+  // Strip markdown links/images, headers, navigation chrome
+  body = body
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/^#{1,6}\s+.*$/gm, '')
+    .replace(/^[-*]\s+.*$/gm, '')
+    .replace(/^\s*\|.*\|\s*$/gm, '')
+    .replace(/^(?:Prev|Previous|Next)\s+Chapter.*$/gim, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  // Build paragraph-ish content
+  const paragraphs = body.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p.length > 20);
+  return { title, content: paragraphs.join('\n\n') };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -482,19 +509,51 @@ serve(async (req) => {
 
     let response = await fetch(url, fetchOpts);
     let html = response.ok ? await response.text() : '';
+    let jinaMarkdown = '';
 
     // Proxy list used both when direct fetch fails AND when it returns a
-    // suspiciously short page (e.g. a challenge/redirect/error stub).
-    const proxyUrls = [
+    // suspiciously short page (e.g. a challenge/redirect/error stub) AND
+    // when the body is large but doesn't contain real chapter markup
+    // (e.g. corsproxy returning a generic landing/interstitial page).
+    const htmlProxies = [
       `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
       `https://corsproxy.io/?${encodeURIComponent(url)}`,
       `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-      `https://r.jina.ai/${url}`,
     ];
+    const jinaProxy = `https://r.jina.ai/${url}`;
     const MIN_HTML = 20000; // novelbin chapter pages are ~200kb; <20kb is a stub
 
+    // Per-host markers that prove the response contains a real chapter page.
+    const validityMarkers: Record<string, RegExp[]> = {
+      'novelbin': [/id="chr-content"/i],
+      'allnovelbin': [/id="chr-content"/i],
+      'royalroad.com': [/chapter-content/i, /chapter-inner/i],
+      'lightnovelpub': [/id="chapter-container"/i, /chapter-content/i],
+      'novelfull': [/id="chapter-content"/i, /chapter-c/i],
+      'freewebnovel': [/id="article"/i, /chapter-content/i, /class="[^"]*txt[^"]*"/i],
+      'novelbuddy': [/id="chapter-content"/i, /chapter__content/i],
+      'novelhall': [/id="htmlContent"/i],
+      'scribblehub': [/id="chp_raw"/i, /chp_raw/i],
+      'wuxiaworld': [/chapter-content/i],
+      'webnovel.com': [/chapter_content/i, /cha-words/i],
+      'readlightnovel': [/chapter-content3/i],
+      'boxnovel': [/reading-content/i, /text-left/i],
+      'novellive.app': [/class="[^"]*txt[^"]*"[^>]*>/i],
+    };
+
+    const isValidChapterHtml = (body: string): boolean => {
+      if (!body || body.length < MIN_HTML) return false;
+      for (const [site, markers] of Object.entries(validityMarkers)) {
+        if (hostname.includes(site)) {
+          return markers.some((m) => m.test(body));
+        }
+      }
+      // Unknown host: accept any sufficiently large HTML.
+      return /<\/(?:article|div)>/i.test(body);
+    };
+
     const tryProxies = async (label: string) => {
-      for (const proxyUrl of proxyUrls) {
+      for (const proxyUrl of htmlProxies) {
         try {
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 15000);
@@ -513,6 +572,10 @@ serve(async (req) => {
             console.log(`Proxy ${proxyUrl.split('?')[0]} returned short body (${text.length} bytes), skipping`);
             continue;
           }
+          if (!isValidChapterHtml(text)) {
+            console.log(`Proxy ${proxyUrl.split('?')[0]} returned ${text.length} bytes but missing chapter markers, skipping`);
+            continue;
+          }
           console.log(`${label}: proxy succeeded via ${proxyUrl.split('?')[0]} (${text.length} bytes)`);
           return text;
         } catch (e) {
@@ -522,23 +585,54 @@ serve(async (req) => {
       return '';
     };
 
+    const tryJinaMarkdown = async (): Promise<string> => {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000);
+        const resp = await fetch(jinaProxy, {
+          headers: {
+            'User-Agent': fetchOpts.headers['User-Agent'],
+            'X-Return-Format': 'markdown',
+          },
+          redirect: 'follow',
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (!resp.ok) {
+          console.log(`Jina returned ${resp.status}`);
+          return '';
+        }
+        const text = await resp.text();
+        console.log(`Jina returned ${text.length} bytes of markdown`);
+        return text;
+      } catch (e) {
+        console.log('Jina failed/timeout:', (e as Error).message);
+        return '';
+      }
+    };
+
     if (!response.ok) {
       const status = response.status;
       console.log(`Direct fetch failed with ${status}, trying proxies...`);
       const proxied = await tryProxies('Direct-fail');
-      if (!proxied) {
-        return new Response(
-          JSON.stringify({ error: `O site bloqueou o acesso (${status}). Tente usar um site alternativo como novelbin.com ou allnovelbin.net.` }),
-          { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+      if (proxied) {
+        html = proxied;
+      } else {
+        // Last resort: ask Jina Reader for markdown.
+        jinaMarkdown = await tryJinaMarkdown();
+        if (!jinaMarkdown) {
+          return new Response(
+            JSON.stringify({ error: `O site bloqueou o acesso (${status}). Tente usar um site alternativo como novelbin.com ou allnovelbin.net.` }),
+            { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
       }
-      html = proxied;
-    } else if (html.length < MIN_HTML && !hostname.includes('wtr-lab.com')) {
-      console.log(`Direct fetch returned suspiciously short body (${html.length} bytes), trying proxies...`);
-      const proxied = await tryProxies('Short-body');
+    } else if (!isValidChapterHtml(html) && !hostname.includes('wtr-lab.com')) {
+      console.log(`Direct fetch returned ${html.length} bytes but failed validity check, trying proxies...`);
+      const proxied = await tryProxies('Invalid-body');
       if (proxied) html = proxied;
     }
-    console.log(`HTML length: ${html.length}, has next_url: ${html.includes('next_url')}, has prev_url: ${html.includes('prev_url')}`);
+    console.log(`HTML length: ${html.length}, valid: ${isValidChapterHtml(html)}, jina: ${jinaMarkdown.length}`);
 
     // Extract title
     let title = '';
@@ -550,23 +644,20 @@ serve(async (req) => {
     else if (titleTag) title = cleanHtml(titleTag[1]);
 
     // Extract content with site-aware selectors
-    let content = trimChapterContent(extractContent(html, hostname), title, hostname);
+    let content = html ? trimChapterContent(extractContent(html, hostname), title, hostname) : '';
 
-    // If direct fetch got no content, try via a web cache/proxy approach
+    // If we still don't have content, fall back to Jina Reader markdown.
     if (!content || content.length < 100) {
-      console.log('Direct fetch got insufficient content, trying Google cache...');
-      try {
-        const cacheUrl = `https://webcache.googleusercontent.com/search?q=cache:${encodeURIComponent(url)}`;
-        const cacheResp = await fetch(cacheUrl, fetchOpts);
-        if (cacheResp.ok) {
-          const cacheHtml = await cacheResp.text();
-          const cacheContent = trimChapterContent(extractContent(cacheHtml, hostname), title, hostname);
-          if (cacheContent.length > (content?.length || 0)) {
-            content = cacheContent;
-          }
+      if (!jinaMarkdown) {
+        console.log('Insufficient content from HTML, trying Jina Reader fallback...');
+        jinaMarkdown = await tryJinaMarkdown();
+      }
+      if (jinaMarkdown) {
+        const parsed = parseJinaMarkdown(jinaMarkdown);
+        if (parsed.content && parsed.content.length > (content?.length || 0)) {
+          content = parsed.content;
+          if (!title && parsed.title) title = parsed.title;
         }
-      } catch (e) {
-        console.log('Cache fallback failed:', e);
       }
     }
 
