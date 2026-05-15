@@ -586,6 +586,31 @@ async function getNovelbinCatalogContext(
   }
 }
 
+async function getNovelbinMirrorCatalogContext(
+  currentUrl: string,
+  parsedUrl: URL,
+  userAgent: string,
+): Promise<{ current: string; next: string; prev: string; title: string } | null> {
+  if (!parsedUrl.hostname.includes('novelbin.com')) return null;
+  const mirrorUrl = new URL(currentUrl);
+  mirrorUrl.hostname = 'novelbin.me';
+  const context = await getNovelbinCatalogContext(mirrorUrl.toString(), mirrorUrl, userAgent);
+  if (!context) return null;
+
+  const normalizeHost = (value: string) => value
+    .replace('https://novelbin.me/novel-book/', 'https://novelbin.com/b/')
+    .replace('http://novelbin.me/novel-book/', 'https://novelbin.com/b/')
+    .replace('https://novelbin.me/b/', 'https://novelbin.com/b/')
+    .replace('http://novelbin.me/b/', 'https://novelbin.com/b/');
+
+  return {
+    current: normalizeHost(context.current),
+    next: normalizeHost(context.next),
+    prev: normalizeHost(context.prev),
+    title: context.title,
+  };
+}
+
 function parseJinaMarkdown(md: string, sourceUrl = '', hostname = ''): { title: string; content: string; next: string; prev: string } {
   // Jina Reader format:
   //   Title: ...
