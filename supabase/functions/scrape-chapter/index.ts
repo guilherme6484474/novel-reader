@@ -310,6 +310,18 @@ function extractNavLinks(html: string, hostname: string): { next: string; prev: 
         /id="prev_url"[^>]*href="([^"]*)"/i,
       ],
     },
+    'novelbin': {
+      next: [
+        /<a\b(?=[^>]*data-chapter-nav="next")(?=[^>]*data-chapter-url="([^"]+)")[^>]*>/i,
+        /<a\b(?=[^>]*data-chapter-nav="next")(?=[^>]*href="([^"]+)")[^>]*>/i,
+        /<a\b(?=[^>]*class="[^"]*js-chapter-nav[^"]*")(?=[^>]*data-chapter-nav="next")(?=[^>]*href="([^"]+)")[^>]*>/i,
+      ],
+      prev: [
+        /<a\b(?=[^>]*data-chapter-nav="prev")(?=[^>]*data-chapter-url="([^"]+)")[^>]*>/i,
+        /<a\b(?=[^>]*data-chapter-nav="prev")(?=[^>]*href="([^"]+)")[^>]*>/i,
+        /<a\b(?=[^>]*class="[^"]*js-chapter-nav[^"]*")(?=[^>]*data-chapter-nav="prev")(?=[^>]*href="([^"]+)")[^>]*>/i,
+      ],
+    },
   };
   for (const [site, patterns] of Object.entries(siteNavPatterns)) {
     if (hostname.includes(site)) {
@@ -458,7 +470,7 @@ function normalizeCompareUrl(value: string): string {
 }
 
 function getNovelbinNovelId(parsedUrl: URL): string {
-  return decodeURIComponent(parsedUrl.pathname.match(/\/b\/([^/]+)/)?.[1] || '');
+  return decodeURIComponent(parsedUrl.pathname.match(/\/(?:b|novel-book)\/([^/]+)/)?.[1] || '');
 }
 
 function getNovelbinChapterNumber(value: string): number | null {
@@ -471,9 +483,21 @@ function isBareNovelbinChapterUrl(value: string): boolean {
 }
 
 function extractJinaNavLinks(md: string): { next: string; prev: string } {
-  const prev = md.match(/\[Prev(?:ious)?\s+Chapter\]\(([^)\s]+)(?:\s+"[^"]*")?\)/i)?.[1] || '';
-  const next = md.match(/\[Next\s+Chapter\]\(([^)\s]+)(?:\s+"[^"]*")?\)/i)?.[1] || '';
+  const prev = md.match(/\[Prev(?:ious)?\s+Chapter\]\(([^)\s]+)(?:\s+"[^"]*")?\)/i)?.[1]?.replace(/&amp;/g, '&') || '';
+  const next = md.match(/\[Next\s+Chapter\]\(([^)\s]+)(?:\s+"[^"]*")?\)/i)?.[1]?.replace(/&amp;/g, '&') || '';
   return { next, prev };
+}
+
+function extractNovelbinCanonicalUrlFromMarkdown(md: string, chapterNumber: number): string {
+  const patterns = [
+    new RegExp(`\\((https?:\\/\\/[^)\\s"']*novelbin\\.com\\/b\\/[^)\\s"']*\\/chapter-${chapterNumber}-[^)\\s"']*)`, 'i'),
+    new RegExp(`URL Source:\\s*(https?:\\/\\/[^\\s]+\\/chapter-${chapterNumber}-[^\\s]+)`, 'i'),
+  ];
+  for (const pattern of patterns) {
+    const match = md.match(pattern);
+    if (match?.[1]) return match[1].replace(/&amp;/g, '&').replace(/["')\]]+$/, '');
+  }
+  return '';
 }
 
 async function getNovelbinCatalogContext(
@@ -486,12 +510,17 @@ async function getNovelbinCatalogContext(
 
   try {
     const archiveUrl = `${parsedUrl.origin}/ajax/chapter-option?novelId=${encodeURIComponent(novelId)}`;
+    const novelPathPrefix = parsedUrl.hostname.includes('novelbin.me') ? 'novel-book' : 'b';
+    const novelHomeUrl = `${parsedUrl.origin}/${novelPathPrefix}/${novelId}`;
     const catalogHeaders: Record<string, string> = {
       'User-Agent': userAgent,
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Cache-Control': 'no-cache',
       'X-Requested-With': 'XMLHttpRequest',
-      'Referer': `${parsedUrl.origin}/b/${novelId}`,
+      'Referer': novelHomeUrl,
     };
+    console.log(`NovelBin catalog lookup: ${archiveUrl}`);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12000);
     const resp = await fetch(archiveUrl, {
@@ -504,7 +533,7 @@ async function getNovelbinCatalogContext(
 
     if (!catalogResp.ok && (catalogResp.status === 403 || catalogResp.status === 419)) {
       console.log(`NovelBin chapter catalog returned ${catalogResp.status}, warming cookies...`);
-      const pageResp = await fetch(`${parsedUrl.origin}/b/${novelId}`, {
+      const pageResp = await fetch(novelHomeUrl, {
         headers: { 'User-Agent': userAgent, 'Accept': catalogHeaders.Accept },
         redirect: 'follow',
       });
@@ -560,6 +589,31 @@ async function getNovelbinCatalogContext(
     console.log('NovelBin chapter catalog failed:', (e as Error).message);
     return null;
   }
+}
+
+async function getNovelbinMirrorCatalogContext(
+  currentUrl: string,
+  parsedUrl: URL,
+  userAgent: string,
+): Promise<{ current: string; next: string; prev: string; title: string } | null> {
+  if (!parsedUrl.hostname.includes('novelbin.com')) return null;
+  const mirrorUrl = new URL(currentUrl);
+  mirrorUrl.hostname = 'novelbin.me';
+  const context = await getNovelbinCatalogContext(mirrorUrl.toString(), mirrorUrl, userAgent);
+  if (!context) return null;
+
+  const normalizeHost = (value: string) => value
+    .replace('https://novelbin.me/novel-book/', 'https://novelbin.com/b/')
+    .replace('http://novelbin.me/novel-book/', 'https://novelbin.com/b/')
+    .replace('https://novelbin.me/b/', 'https://novelbin.com/b/')
+    .replace('http://novelbin.me/b/', 'https://novelbin.com/b/');
+
+  return {
+    current: normalizeHost(context.current),
+    next: normalizeHost(context.next),
+    prev: normalizeHost(context.prev),
+    title: context.title,
+  };
 }
 
 function parseJinaMarkdown(md: string, sourceUrl = '', hostname = ''): { title: string; content: string; next: string; prev: string } {
@@ -655,6 +709,9 @@ serve(async (req) => {
 
     if (hostname.includes('novelbin')) {
       catalogContext = await getNovelbinCatalogContext(url, parsedUrl, fetchOpts.headers['User-Agent']);
+      if (!catalogContext) {
+        catalogContext = await getNovelbinMirrorCatalogContext(url, parsedUrl, fetchOpts.headers['User-Agent']);
+      }
       if (catalogContext?.current && normalizeCompareUrl(catalogContext.current) !== normalizeCompareUrl(url)) {
         canonicalUrl = catalogContext.current;
         console.log(`NovelBin canonical chapter URL resolved: ${canonicalUrl}`);
@@ -764,6 +821,21 @@ serve(async (req) => {
         return '';
       }
     };
+
+    if (hostname.includes('novelbin') && isBareNovelbinChapterUrl(canonicalUrl)) {
+      jinaMarkdown = await tryJinaMarkdown();
+      const chapterNumber = getNovelbinChapterNumber(canonicalUrl);
+      const jinaCanonicalUrl = chapterNumber !== null
+        ? extractNovelbinCanonicalUrlFromMarkdown(jinaMarkdown, chapterNumber)
+        : '';
+      if (jinaCanonicalUrl && normalizeCompareUrl(jinaCanonicalUrl) !== normalizeCompareUrl(canonicalUrl)) {
+        canonicalUrl = jinaCanonicalUrl;
+        console.log(`NovelBin canonical URL resolved from Jina: ${canonicalUrl}`);
+        response = await fetch(canonicalUrl, fetchOpts);
+        html = response.ok ? await response.text() : '';
+        jinaMarkdown = '';
+      }
+    }
 
     if (!response.ok) {
       const status = response.status;
