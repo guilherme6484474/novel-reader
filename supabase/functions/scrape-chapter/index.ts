@@ -446,6 +446,33 @@ async function handleWtrLab(url: string, parsedUrl: URL): Promise<Response> {
   );
 }
 
+function parseJinaMarkdown(md: string): { title: string; content: string } {
+  // Jina Reader format:
+  //   Title: ...
+  //   URL Source: ...
+  //   Markdown Content:
+  //   <body>
+  let title = '';
+  let body = md;
+  const titleMatch = md.match(/^Title:\s*(.+)$/m);
+  if (titleMatch) title = titleMatch[1].trim();
+  const idx = md.indexOf('Markdown Content:');
+  if (idx !== -1) body = md.slice(idx + 'Markdown Content:'.length);
+  // Strip markdown links/images, headers, navigation chrome
+  body = body
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/^#{1,6}\s+.*$/gm, '')
+    .replace(/^[-*]\s+.*$/gm, '')
+    .replace(/^\s*\|.*\|\s*$/gm, '')
+    .replace(/^(?:Prev|Previous|Next)\s+Chapter.*$/gim, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  // Build paragraph-ish content
+  const paragraphs = body.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p.length > 20);
+  return { title, content: paragraphs.join('\n\n') };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
