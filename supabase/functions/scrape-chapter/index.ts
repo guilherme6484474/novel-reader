@@ -510,12 +510,17 @@ async function getNovelbinCatalogContext(
 
   try {
     const archiveUrl = `${parsedUrl.origin}/ajax/chapter-option?novelId=${encodeURIComponent(novelId)}`;
+    const novelPathPrefix = parsedUrl.hostname.includes('novelbin.me') ? 'novel-book' : 'b';
+    const novelHomeUrl = `${parsedUrl.origin}/${novelPathPrefix}/${novelId}`;
     const catalogHeaders: Record<string, string> = {
       'User-Agent': userAgent,
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Cache-Control': 'no-cache',
       'X-Requested-With': 'XMLHttpRequest',
-      'Referer': `${parsedUrl.origin}/b/${novelId}`,
+      'Referer': novelHomeUrl,
     };
+    console.log(`NovelBin catalog lookup: ${archiveUrl}`);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12000);
     const resp = await fetch(archiveUrl, {
@@ -528,7 +533,7 @@ async function getNovelbinCatalogContext(
 
     if (!catalogResp.ok && (catalogResp.status === 403 || catalogResp.status === 419)) {
       console.log(`NovelBin chapter catalog returned ${catalogResp.status}, warming cookies...`);
-      const pageResp = await fetch(`${parsedUrl.origin}/b/${novelId}`, {
+      const pageResp = await fetch(novelHomeUrl, {
         headers: { 'User-Agent': userAgent, 'Accept': catalogHeaders.Accept },
         redirect: 'follow',
       });
