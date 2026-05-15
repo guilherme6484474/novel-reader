@@ -310,6 +310,18 @@ function extractNavLinks(html: string, hostname: string): { next: string; prev: 
         /id="prev_url"[^>]*href="([^"]*)"/i,
       ],
     },
+    'novelbin': {
+      next: [
+        /<a\b(?=[^>]*data-chapter-nav="next")(?=[^>]*data-chapter-url="([^"]+)")[^>]*>/i,
+        /<a\b(?=[^>]*data-chapter-nav="next")(?=[^>]*href="([^"]+)")[^>]*>/i,
+        /<a\b(?=[^>]*class="[^"]*js-chapter-nav[^"]*")(?=[^>]*data-chapter-nav="next")(?=[^>]*href="([^"]+)")[^>]*>/i,
+      ],
+      prev: [
+        /<a\b(?=[^>]*data-chapter-nav="prev")(?=[^>]*data-chapter-url="([^"]+)")[^>]*>/i,
+        /<a\b(?=[^>]*data-chapter-nav="prev")(?=[^>]*href="([^"]+)")[^>]*>/i,
+        /<a\b(?=[^>]*class="[^"]*js-chapter-nav[^"]*")(?=[^>]*data-chapter-nav="prev")(?=[^>]*href="([^"]+)")[^>]*>/i,
+      ],
+    },
   };
   for (const [site, patterns] of Object.entries(siteNavPatterns)) {
     if (hostname.includes(site)) {
