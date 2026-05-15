@@ -483,9 +483,21 @@ function isBareNovelbinChapterUrl(value: string): boolean {
 }
 
 function extractJinaNavLinks(md: string): { next: string; prev: string } {
-  const prev = md.match(/\[Prev(?:ious)?\s+Chapter\]\(([^)\s]+)(?:\s+"[^"]*")?\)/i)?.[1] || '';
-  const next = md.match(/\[Next\s+Chapter\]\(([^)\s]+)(?:\s+"[^"]*")?\)/i)?.[1] || '';
+  const prev = md.match(/\[Prev(?:ious)?\s+Chapter\]\(([^)\s]+)(?:\s+"[^"]*")?\)/i)?.[1]?.replace(/&amp;/g, '&') || '';
+  const next = md.match(/\[Next\s+Chapter\]\(([^)\s]+)(?:\s+"[^"]*")?\)/i)?.[1]?.replace(/&amp;/g, '&') || '';
   return { next, prev };
+}
+
+function extractNovelbinCanonicalUrlFromMarkdown(md: string, chapterNumber: number): string {
+  const patterns = [
+    new RegExp(`\\((https?:\\/\\/[^)\\s"']*novelbin\\.com\\/b\\/[^)\\s"']*\\/chapter-${chapterNumber}-[^)\\s"']*)`, 'i'),
+    new RegExp(`URL Source:\\s*(https?:\\/\\/[^\\s]+\\/chapter-${chapterNumber}-[^\\s]+)`, 'i'),
+  ];
+  for (const pattern of patterns) {
+    const match = md.match(pattern);
+    if (match?.[1]) return match[1].replace(/&amp;/g, '&').replace(/["')\]]+$/, '');
+  }
+  return '';
 }
 
 async function getNovelbinCatalogContext(
