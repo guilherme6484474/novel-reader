@@ -789,6 +789,21 @@ serve(async (req) => {
       }
     };
 
+    if (hostname.includes('novelbin') && isBareNovelbinChapterUrl(canonicalUrl)) {
+      jinaMarkdown = await tryJinaMarkdown();
+      const chapterNumber = getNovelbinChapterNumber(canonicalUrl);
+      const jinaCanonicalUrl = chapterNumber !== null
+        ? extractNovelbinCanonicalUrlFromMarkdown(jinaMarkdown, chapterNumber)
+        : '';
+      if (jinaCanonicalUrl && normalizeCompareUrl(jinaCanonicalUrl) !== normalizeCompareUrl(canonicalUrl)) {
+        canonicalUrl = jinaCanonicalUrl;
+        console.log(`NovelBin canonical URL resolved from Jina: ${canonicalUrl}`);
+        response = await fetch(canonicalUrl, fetchOpts);
+        html = response.ok ? await response.text() : '';
+        jinaMarkdown = '';
+      }
+    }
+
     if (!response.ok) {
       const status = response.status;
       console.log(`Direct fetch failed with ${status}, trying proxies...`);
