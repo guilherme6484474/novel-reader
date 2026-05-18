@@ -482,6 +482,34 @@ function isBareNovelbinChapterUrl(value: string): boolean {
   return /\/c?chapter-\d+\/?(?:[?#].*)?$/i.test(value);
 }
 
+function slugifyNovelbinChapterTitle(title: string): string {
+  return title
+    .replace(/&amp;/g, '&')
+    .replace(/\)\s*_?\s*(\d+)\s*$/g, '$1')
+    .replace(/[_]+/g, '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[’']/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-');
+}
+
+function looksLikeNovelbinChrome(content: string): boolean {
+  const head = content.slice(0, 3000).toLowerCase();
+  const markers = [
+    'novel list',
+    'latest release',
+    'hot novel',
+    'completed novel',
+    'most popular',
+    'genre',
+    'show menu',
+  ];
+  return markers.filter((marker) => head.includes(marker)).length >= 3;
+}
+
 function extractJinaNavLinks(md: string): { next: string; prev: string } {
   const prev = md.match(/\[Prev(?:ious)?\s+Chapter\]\(([^)\s]+)(?:\s+"[^"]*")?\)/i)?.[1]?.replace(/&amp;/g, '&') || '';
   const next = md.match(/\[Next\s+Chapter\]\(([^)\s]+)(?:\s+"[^"]*")?\)/i)?.[1]?.replace(/&amp;/g, '&') || '';
@@ -498,6 +526,42 @@ function extractNovelbinCanonicalUrlFromMarkdown(md: string, chapterNumber: numb
     if (match?.[1]) return match[1].replace(/&amp;/g, '&').replace(/["')\]]+$/, '');
   }
   return '';
+}
+
+function getNovelbinCatalogContextFromMarkdown(
+  currentUrl: string,
+  catalogMarkdown: string,
+): { current: string; next: string; prev: string; title: string } | null {
+  const chapterNumber = getNovelbinChapterNumber(currentUrl);
+  if (chapterNumber === null || !catalogMarkdown) return null;
+  try {
+    const parsed = new URL(currentUrl);
+    const novelId = getNovelbinNovelId(parsed);
+    if (!novelId) return null;
+    const pathPrefix = parsed.hostname.includes('novelbin.me') ? 'novel-book' : 'b';
+    const body = catalogMarkdown.includes('Markdown Content:')
+      ? catalogMarkdown.slice(catalogMarkdown.indexOf('Markdown Content:') + 'Markdown Content:'.length)
+      : catalogMarkdown;
+    const items = body
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => /^Chapter\s+\d+(?:\b|\s*[-:])/i.test(line))
+      .map((title) => ({
+        title,
+        number: getNovelbinChapterNumber(`/${slugifyNovelbinChapterTitle(title)}`),
+        url: `${parsed.origin}/${pathPrefix}/${novelId}/${slugifyNovelbinChapterTitle(title)}`,
+      }));
+    const index = items.findIndex((item) => item.number === chapterNumber);
+    if (index === -1) return null;
+    return {
+      current: items[index].url,
+      prev: index > 0 ? items[index - 1].url : '',
+      next: index < items.length - 1 ? items[index + 1].url : '',
+      title: items[index].title,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function getNovelbinCatalogContext(
@@ -738,12 +802,11 @@ serve(async (req) => {
     // suspiciously short page (e.g. a challenge/redirect/error stub) AND
     // when the body is large but doesn't contain real chapter markup
     // (e.g. corsproxy returning a generic landing/interstitial page).
-    const htmlProxies = [
+    const getHtmlProxies = () => [
       `https://api.allorigins.win/raw?url=${encodeURIComponent(canonicalUrl)}`,
       `https://corsproxy.io/?${encodeURIComponent(canonicalUrl)}`,
       `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(canonicalUrl)}`,
     ];
-    const jinaProxy = `https://r.jina.ai/${canonicalUrl}`;
     const MIN_HTML = 20000; // novelbin chapter pages are ~200kb; <20kb is a stub
 
     // Per-host markers that prove the response contains a real chapter page.
@@ -776,7 +839,7 @@ serve(async (req) => {
     };
 
     const tryProxies = async (label: string) => {
-      for (const proxyUrl of htmlProxies) {
+      for (const proxyUrl of getHtmlProxies()) {
         try {
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 15000);
@@ -808,11 +871,11 @@ serve(async (req) => {
       return '';
     };
 
-    const tryJinaMarkdown = async (): Promise<string> => {
+    const tryJinaUrl = async (targetUrl: string): Promise<string> => {
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 15000);
-        const resp = await fetch(jinaProxy, {
+        const resp = await fetch(`https://r.jina.ai/${targetUrl}`, {
           headers: {
             'User-Agent': fetchOpts.headers['User-Agent'],
             'X-Return-Format': 'markdown',
@@ -833,6 +896,26 @@ serve(async (req) => {
         return '';
       }
     };
+
+    const tryJinaMarkdown = async (): Promise<string> => tryJinaUrl(canonicalUrl);
+
+    if (hostname.includes('novelbin') && !catalogContext) {
+      const novelId = getNovelbinNovelId(parsedUrl);
+      if (novelId) {
+        const catalogMarkdown = await tryJinaUrl(`${parsedUrl.origin}/ajax/chapter-option?novelId=${encodeURIComponent(novelId)}`);
+        const markdownContext = getNovelbinCatalogContextFromMarkdown(canonicalUrl, catalogMarkdown);
+        if (markdownContext) {
+          catalogContext = markdownContext;
+          if (normalizeCompareUrl(markdownContext.current) !== normalizeCompareUrl(canonicalUrl)) {
+            canonicalUrl = markdownContext.current;
+            console.log(`NovelBin canonical chapter URL resolved from Jina catalog: ${canonicalUrl}`);
+            response = await fetch(canonicalUrl, fetchOpts);
+            html = response.ok ? await response.text() : '';
+            jinaMarkdown = '';
+          }
+        }
+      }
+    }
 
     if (hostname.includes('novelbin') && isBareNovelbinChapterUrl(canonicalUrl)) {
       jinaMarkdown = await tryJinaMarkdown();
@@ -884,6 +967,10 @@ serve(async (req) => {
 
     // Extract content with site-aware selectors
     let content = html ? trimChapterContent(extractContent(html, hostname), title, hostname) : '';
+    if (hostname.includes('novelbin') && looksLikeNovelbinChrome(content)) {
+      console.log('NovelBin extracted page chrome/menu instead of chapter text, forcing fallback');
+      content = '';
+    }
 
     // If we still don't have content, fall back to Jina Reader markdown.
     if (!content || content.length < 100) {
@@ -893,7 +980,9 @@ serve(async (req) => {
       }
       if (jinaMarkdown) {
         const parsed = parseJinaMarkdown(jinaMarkdown, canonicalUrl, hostname);
-        if (parsed.content && parsed.content.length > (content?.length || 0)) {
+        if (parsed.content && hostname.includes('novelbin') && looksLikeNovelbinChrome(parsed.content)) {
+          console.log('NovelBin Jina fallback returned page chrome/menu, ignoring');
+        } else if (parsed.content && parsed.content.length > (content?.length || 0)) {
           content = parsed.content;
           if (!title && parsed.title) title = parsed.title;
         }
