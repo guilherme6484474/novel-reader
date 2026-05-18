@@ -549,6 +549,42 @@ function resolveNovelbinCanonicalFromCatalogMarkdown(currentUrl: string, catalog
   }
 }
 
+function getNovelbinCatalogContextFromMarkdown(
+  currentUrl: string,
+  catalogMarkdown: string,
+): { current: string; next: string; prev: string; title: string } | null {
+  const chapterNumber = getNovelbinChapterNumber(currentUrl);
+  if (chapterNumber === null || !catalogMarkdown) return null;
+  try {
+    const parsed = new URL(currentUrl);
+    const novelId = getNovelbinNovelId(parsed);
+    if (!novelId) return null;
+    const pathPrefix = parsed.hostname.includes('novelbin.me') ? 'novel-book' : 'b';
+    const body = catalogMarkdown.includes('Markdown Content:')
+      ? catalogMarkdown.slice(catalogMarkdown.indexOf('Markdown Content:') + 'Markdown Content:'.length)
+      : catalogMarkdown;
+    const items = body
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => /^Chapter\s+\d+(?:\b|\s*[-:])/i.test(line))
+      .map((title) => ({
+        title,
+        number: getNovelbinChapterNumber(`/${slugifyNovelbinChapterTitle(title)}`),
+        url: `${parsed.origin}/${pathPrefix}/${novelId}/${slugifyNovelbinChapterTitle(title)}`,
+      }));
+    const index = items.findIndex((item) => item.number === chapterNumber);
+    if (index === -1) return null;
+    return {
+      current: items[index].url,
+      prev: index > 0 ? items[index - 1].url : '',
+      next: index < items.length - 1 ? items[index + 1].url : '',
+      title: items[index].title,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function getNovelbinCatalogContext(
   currentUrl: string,
   parsedUrl: URL,
