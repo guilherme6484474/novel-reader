@@ -966,7 +966,6 @@ serve(async (req) => {
           jinaMarkdown = candidateMd;
           html = '';
           response = new Response('', { status: 200 });
-          if (candidateParsed.title) title = candidateParsed.title;
           console.log(`NovelBin repaired canonical chapter URL via Jina candidate: ${canonicalUrl}`);
           return true;
         }
@@ -1054,9 +1053,16 @@ serve(async (req) => {
         jinaMarkdown = await tryJinaMarkdown();
       }
       if (jinaMarkdown) {
-        const parsed = parseJinaMarkdown(jinaMarkdown, canonicalUrl, hostname);
+        let parsed = parseJinaMarkdown(jinaMarkdown, canonicalUrl, hostname);
         if (parsed.content && hostname.includes('novelbin') && looksLikeNovelbinChrome(parsed.content)) {
           console.log('NovelBin Jina fallback returned page chrome/menu, ignoring');
+          if (await repairNovelbinCanonicalFromJina()) {
+            parsed = parseJinaMarkdown(jinaMarkdown, canonicalUrl, hostname);
+            if (parsed.content && !looksLikeNovelbinChrome(parsed.content)) {
+              content = parsed.content;
+              if (!title && parsed.title) title = parsed.title;
+            }
+          }
         } else if (parsed.content && parsed.content.length > (content?.length || 0)) {
           content = parsed.content;
           if (!title && parsed.title) title = parsed.title;
