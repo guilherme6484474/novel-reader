@@ -482,6 +482,33 @@ function isBareNovelbinChapterUrl(value: string): boolean {
   return /\/c?chapter-\d+\/?(?:[?#].*)?$/i.test(value);
 }
 
+function slugifyNovelbinChapterTitle(title: string): string {
+  return title
+    .replace(/&amp;/g, '&')
+    .replace(/[_]+/g, '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[’']/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-');
+}
+
+function looksLikeNovelbinChrome(content: string): boolean {
+  const head = content.slice(0, 3000).toLowerCase();
+  const markers = [
+    'novel list',
+    'latest release',
+    'hot novel',
+    'completed novel',
+    'most popular',
+    'genre',
+    'show menu',
+  ];
+  return markers.filter((marker) => head.includes(marker)).length >= 3;
+}
+
 function extractJinaNavLinks(md: string): { next: string; prev: string } {
   const prev = md.match(/\[Prev(?:ious)?\s+Chapter\]\(([^)\s]+)(?:\s+"[^"]*")?\)/i)?.[1]?.replace(/&amp;/g, '&') || '';
   const next = md.match(/\[Next\s+Chapter\]\(([^)\s]+)(?:\s+"[^"]*")?\)/i)?.[1]?.replace(/&amp;/g, '&') || '';
