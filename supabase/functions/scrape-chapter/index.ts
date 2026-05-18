@@ -764,6 +764,8 @@ function parseJinaMarkdown(md: string, sourceUrl = '', hostname = ''): { title: 
       heading = body.match(anyRegex);
     }
     if (heading && heading.index !== undefined) {
+      const headingTitle = heading[0].match(/^##\s*\[([^\]]+)]/)?.[1]?.trim();
+      if (headingTitle) title = headingTitle;
       body = body.slice(heading.index + heading[0].length);
     } else {
       console.log('Jina NovelBin markdown missing chapter heading, using heuristic strip');
@@ -785,6 +787,7 @@ function parseJinaMarkdown(md: string, sourceUrl = '', hostname = ''): { title: 
     body = lines.join('\n');
     const endMatch = body.search(/\n\s*(?:\* \* \*\s*)?(?:\[\]\(javascript:|\[(?:Prev|Previous|Next)\s+Chapter\]|Comments?|Chapter Comments|Commented on)\b/i);
     if (endMatch > 500) body = body.slice(0, endMatch);
+    body = body.replace(/\n{2,}(?:Report chapterComments|Tip:\s+You can use|Share your thoughts|Thoughtful comments|\*\*Reader comments\*\*|Loading more comments|Keep it helpful|\*\*Novel Bin\*\*\s+Read light novel)[\s\S]*$/i, '').trim();
   }
 
   // Strip markdown links/images, headers, navigation chrome
@@ -798,7 +801,7 @@ function parseJinaMarkdown(md: string, sourceUrl = '', hostname = ''): { title: 
     .replace(/\n{3,}/g, '\n\n')
     .trim();
   // Build paragraph-ish content
-  const paragraphs = body.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p.length > 20);
+  const paragraphs = body.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p.length > 1);
   return { title, content: paragraphs.join('\n\n'), next: nav.next, prev: nav.prev };
 }
 
