@@ -828,7 +828,6 @@ serve(async (req) => {
       `https://corsproxy.io/?${encodeURIComponent(canonicalUrl)}`,
       `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(canonicalUrl)}`,
     ];
-    const jinaProxy = `https://r.jina.ai/${canonicalUrl}`;
     const MIN_HTML = 20000; // novelbin chapter pages are ~200kb; <20kb is a stub
 
     // Per-host markers that prove the response contains a real chapter page.
@@ -893,11 +892,11 @@ serve(async (req) => {
       return '';
     };
 
-    const tryJinaMarkdown = async (): Promise<string> => {
+    const tryJinaUrl = async (targetUrl: string): Promise<string> => {
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 15000);
-        const resp = await fetch(jinaProxy, {
+        const resp = await fetch(`https://r.jina.ai/${targetUrl}`, {
           headers: {
             'User-Agent': fetchOpts.headers['User-Agent'],
             'X-Return-Format': 'markdown',
@@ -918,6 +917,26 @@ serve(async (req) => {
         return '';
       }
     };
+
+    const tryJinaMarkdown = async (): Promise<string> => tryJinaUrl(canonicalUrl);
+
+    if (hostname.includes('novelbin') && !catalogContext) {
+      const novelId = getNovelbinNovelId(parsedUrl);
+      if (novelId) {
+        const catalogMarkdown = await tryJinaUrl(`${parsedUrl.origin}/ajax/chapter-option?novelId=${encodeURIComponent(novelId)}`);
+        const markdownContext = getNovelbinCatalogContextFromMarkdown(canonicalUrl, catalogMarkdown);
+        if (markdownContext) {
+          catalogContext = markdownContext;
+          if (normalizeCompareUrl(markdownContext.current) !== normalizeCompareUrl(canonicalUrl)) {
+            canonicalUrl = markdownContext.current;
+            console.log(`NovelBin canonical chapter URL resolved from Jina catalog: ${canonicalUrl}`);
+            response = await fetch(canonicalUrl, fetchOpts);
+            html = response.ok ? await response.text() : '';
+            jinaMarkdown = '';
+          }
+        }
+      }
+    }
 
     if (hostname.includes('novelbin') && isBareNovelbinChapterUrl(canonicalUrl)) {
       jinaMarkdown = await tryJinaMarkdown();
