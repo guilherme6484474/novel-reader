@@ -528,6 +528,61 @@ function extractNovelbinCanonicalUrlFromMarkdown(md: string, chapterNumber: numb
   return '';
 }
 
+function getNovelbinRepairCandidateUrls(currentUrl: string): string[] {
+  try {
+    const parsed = new URL(currentUrl);
+    if (!parsed.hostname.includes('novelbin')) return [];
+
+    const parts = parsed.pathname.split('/');
+    const segment = parts.pop() || '';
+    if (!/^c?chapter-\d+-/i.test(segment)) return [];
+
+    const tokens = segment.split('-').filter(Boolean);
+    if (tokens.length < 3) return [];
+
+    const lastToken = tokens[tokens.length - 1].toLowerCase();
+    const prefix = tokens.slice(0, -1).join('-');
+    const full = tokens.join('-');
+    const endings = [
+      'subscribe-please2',
+      'subscribe-please',
+      'please-subscribe2',
+      'please-subscribe',
+      'seeking-subscriptions',
+      'seeking-subscription',
+      'requesting-subscription',
+      'subscription-requested',
+      'request-for-subscription',
+      'request-subscription',
+      'requested-subscription',
+      'please-subscribe3',
+    ];
+    const singleWords = ['subscribe', 'subscription', 'subscriptions', 'subscribed'];
+    const candidates = new Set<string>();
+
+    for (const ending of endings) {
+      if (ending.startsWith(lastToken) || lastToken.length <= 2) candidates.add(`${prefix}-${ending}`);
+    }
+    for (const word of singleWords) {
+      if (word.startsWith(lastToken)) {
+        candidates.add(`${prefix}-${word}`);
+        candidates.add(`${prefix}-${word}2`);
+      }
+    }
+    for (const ending of endings) {
+      if (!full.endsWith(ending)) candidates.add(`${full}-${ending}`);
+    }
+
+    return [...candidates].slice(0, 28).map((candidate) => {
+      const repaired = new URL(currentUrl);
+      repaired.pathname = [...parts, candidate].join('/');
+      return repaired.toString();
+    });
+  } catch {
+    return [];
+  }
+}
+
 function getNovelbinCatalogContextFromMarkdown(
   currentUrl: string,
   catalogMarkdown: string,
@@ -701,14 +756,16 @@ function parseJinaMarkdown(md: string, sourceUrl = '', hostname = ''): { title: 
     // fall back to any chapter heading. As a last resort, just strip the
     // top page chrome heuristically.
     const exactRegex = chapterNumber !== null
-      ? new RegExp(`^##\\s*\\[[^\\]]*Chapter\\s+${chapterNumber}\\b[^\\]]*\\]\\([^)]*\\)\\s*$`, 'im')
+      ? new RegExp(`^##\\s*\\[[^\\n]*Chapter\\s+${chapterNumber}\\b[^\\n]*$`, 'im')
       : null;
-    const anyRegex = /^##\s*\[[^\]]*Chapter\s+\d+\b[^\]]*\]\([^)]*\)\s*$/im;
+    const anyRegex = /^##\s*\[[^\n]*Chapter\s+\d+\b[^\n]*$/im;
     let heading = exactRegex ? body.match(exactRegex) : null;
     if (!heading || heading.index === undefined) {
       heading = body.match(anyRegex);
     }
     if (heading && heading.index !== undefined) {
+      const headingTitle = heading[0].match(/^##\s*\[([^\]]+)]/)?.[1]?.trim();
+      if (headingTitle) title = headingTitle;
       body = body.slice(heading.index + heading[0].length);
     } else {
       console.log('Jina NovelBin markdown missing chapter heading, using heuristic strip');
@@ -730,6 +787,7 @@ function parseJinaMarkdown(md: string, sourceUrl = '', hostname = ''): { title: 
     body = lines.join('\n');
     const endMatch = body.search(/\n\s*(?:\* \* \*\s*)?(?:\[\]\(javascript:|\[(?:Prev|Previous|Next)\s+Chapter\]|Comments?|Chapter Comments|Commented on)\b/i);
     if (endMatch > 500) body = body.slice(0, endMatch);
+    body = body.replace(/\n{2,}(?:Report chapterComments|Tip:\s+You can use|Share your thoughts|Thoughtful comments|\*\*Reader comments\*\*|Loading more comments|Keep it helpful|\*\*Novel Bin\*\*\s+Read light novel)[\s\S]*$/i, '').trim();
   }
 
   // Strip markdown links/images, headers, navigation chrome
@@ -743,7 +801,7 @@ function parseJinaMarkdown(md: string, sourceUrl = '', hostname = ''): { title: 
     .replace(/\n{3,}/g, '\n\n')
     .trim();
   // Build paragraph-ish content
-  const paragraphs = body.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p.length > 20);
+  const paragraphs = body.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p.length > 1);
   return { title, content: paragraphs.join('\n\n'), next: nav.next, prev: nav.prev };
 }
 
@@ -899,6 +957,25 @@ serve(async (req) => {
 
     const tryJinaMarkdown = async (): Promise<string> => tryJinaUrl(canonicalUrl);
 
+    const repairNovelbinCanonicalFromJina = async (): Promise<boolean> => {
+      if (!hostname.includes('novelbin') || !looksLikeNovelbinChrome(parseJinaMarkdown(jinaMarkdown, canonicalUrl, hostname).content)) return false;
+      for (const candidateUrl of getNovelbinRepairCandidateUrls(canonicalUrl)) {
+        console.log(`NovelBin trying repaired candidate: ${candidateUrl}`);
+        const candidateMd = await tryJinaUrl(candidateUrl);
+        if (!candidateMd) continue;
+        const candidateParsed = parseJinaMarkdown(candidateMd, candidateUrl, hostname);
+        if (candidateParsed.content.length > 500 && !looksLikeNovelbinChrome(candidateParsed.content)) {
+          canonicalUrl = candidateUrl;
+          jinaMarkdown = candidateMd;
+          html = '';
+          response = new Response('', { status: 200 });
+          console.log(`NovelBin repaired canonical chapter URL via Jina candidate: ${canonicalUrl}`);
+          return true;
+        }
+      }
+      return false;
+    };
+
     if (hostname.includes('novelbin') && !catalogContext) {
       const novelId = getNovelbinNovelId(parsedUrl);
       if (novelId) {
@@ -979,9 +1056,16 @@ serve(async (req) => {
         jinaMarkdown = await tryJinaMarkdown();
       }
       if (jinaMarkdown) {
-        const parsed = parseJinaMarkdown(jinaMarkdown, canonicalUrl, hostname);
+        let parsed = parseJinaMarkdown(jinaMarkdown, canonicalUrl, hostname);
         if (parsed.content && hostname.includes('novelbin') && looksLikeNovelbinChrome(parsed.content)) {
           console.log('NovelBin Jina fallback returned page chrome/menu, ignoring');
+          if (await repairNovelbinCanonicalFromJina()) {
+            parsed = parseJinaMarkdown(jinaMarkdown, canonicalUrl, hostname);
+            if (parsed.content && !looksLikeNovelbinChrome(parsed.content)) {
+              content = parsed.content;
+              if (!title && parsed.title) title = parsed.title;
+            }
+          }
         } else if (parsed.content && parsed.content.length > (content?.length || 0)) {
           content = parsed.content;
           if (!title && parsed.title) title = parsed.title;
