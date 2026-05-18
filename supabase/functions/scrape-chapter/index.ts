@@ -528,6 +528,61 @@ function extractNovelbinCanonicalUrlFromMarkdown(md: string, chapterNumber: numb
   return '';
 }
 
+function getNovelbinRepairCandidateUrls(currentUrl: string): string[] {
+  try {
+    const parsed = new URL(currentUrl);
+    if (!parsed.hostname.includes('novelbin')) return [];
+
+    const parts = parsed.pathname.split('/');
+    const segment = parts.pop() || '';
+    if (!/^c?chapter-\d+-/i.test(segment)) return [];
+
+    const tokens = segment.split('-').filter(Boolean);
+    if (tokens.length < 3) return [];
+
+    const lastToken = tokens[tokens.length - 1].toLowerCase();
+    const prefix = tokens.slice(0, -1).join('-');
+    const full = tokens.join('-');
+    const endings = [
+      'subscribe-please2',
+      'subscribe-please',
+      'please-subscribe2',
+      'please-subscribe',
+      'seeking-subscriptions',
+      'seeking-subscription',
+      'requesting-subscription',
+      'subscription-requested',
+      'request-for-subscription',
+      'request-subscription',
+      'requested-subscription',
+      'please-subscribe3',
+    ];
+    const singleWords = ['subscribe', 'subscription', 'subscriptions', 'subscribed'];
+    const candidates = new Set<string>();
+
+    for (const ending of endings) {
+      if (ending.startsWith(lastToken) || lastToken.length <= 2) candidates.add(`${prefix}-${ending}`);
+    }
+    for (const word of singleWords) {
+      if (word.startsWith(lastToken)) {
+        candidates.add(`${prefix}-${word}`);
+        candidates.add(`${prefix}-${word}2`);
+      }
+    }
+    for (const ending of endings) {
+      if (!full.endsWith(ending)) candidates.add(`${full}-${ending}`);
+    }
+
+    return [...candidates].slice(0, 28).map((candidate) => {
+      const repaired = new URL(currentUrl);
+      repaired.pathname = [...parts, candidate].join('/');
+      return repaired.toString();
+    });
+  } catch {
+    return [];
+  }
+}
+
 function getNovelbinCatalogContextFromMarkdown(
   currentUrl: string,
   catalogMarkdown: string,
