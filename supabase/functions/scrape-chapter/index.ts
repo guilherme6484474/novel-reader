@@ -485,6 +485,7 @@ function isBareNovelbinChapterUrl(value: string): boolean {
 function slugifyNovelbinChapterTitle(title: string): string {
   return title
     .replace(/&amp;/g, '&')
+    .replace(/\)\s*_?\s*(\d+)\s*$/g, '$1')
     .replace(/[_]+/g, '')
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -823,7 +824,7 @@ serve(async (req) => {
     // suspiciously short page (e.g. a challenge/redirect/error stub) AND
     // when the body is large but doesn't contain real chapter markup
     // (e.g. corsproxy returning a generic landing/interstitial page).
-    const htmlProxies = [
+    const getHtmlProxies = () => [
       `https://api.allorigins.win/raw?url=${encodeURIComponent(canonicalUrl)}`,
       `https://corsproxy.io/?${encodeURIComponent(canonicalUrl)}`,
       `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(canonicalUrl)}`,
@@ -860,7 +861,7 @@ serve(async (req) => {
     };
 
     const tryProxies = async (label: string) => {
-      for (const proxyUrl of htmlProxies) {
+      for (const proxyUrl of getHtmlProxies()) {
         try {
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 15000);
