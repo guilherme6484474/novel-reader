@@ -756,9 +756,9 @@ function parseJinaMarkdown(md: string, sourceUrl = '', hostname = ''): { title: 
     // fall back to any chapter heading. As a last resort, just strip the
     // top page chrome heuristically.
     const exactRegex = chapterNumber !== null
-      ? new RegExp(`^##\\s*\\[[^\\]]*Chapter\\s+${chapterNumber}\\b[^\\]]*\\]\\([^)]*\\)\\s*$`, 'im')
+      ? new RegExp(`^##\\s*\\[[^\\n]*Chapter\\s+${chapterNumber}\\b[^\\n]*$`, 'im')
       : null;
-    const anyRegex = /^##\s*\[[^\]]*Chapter\s+\d+\b[^\]]*\]\([^)]*\)\s*$/im;
+    const anyRegex = /^##\s*\[[^\n]*Chapter\s+\d+\b[^\n]*$/im;
     let heading = exactRegex ? body.match(exactRegex) : null;
     if (!heading || heading.index === undefined) {
       heading = body.match(anyRegex);
