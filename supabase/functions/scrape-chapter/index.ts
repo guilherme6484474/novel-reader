@@ -632,16 +632,28 @@ function parseJinaMarkdown(md: string, sourceUrl = '', hostname = ''): { title: 
 
   if (hostname.includes('novelbin')) {
     const chapterNumber = getNovelbinChapterNumber(sourceUrl);
-    const headingRegex = chapterNumber !== null
+    // Try exact chapter number first; if not found (slug number differs from
+    // in-page chapter heading number, e.g. "chapter-211-chapter-11-..."),
+    // fall back to any chapter heading. As a last resort, just strip the
+    // top page chrome heuristically.
+    const exactRegex = chapterNumber !== null
       ? new RegExp(`^##\\s*\\[[^\\]]*Chapter\\s+${chapterNumber}\\b[^\\]]*\\]\\([^)]*\\)\\s*$`, 'im')
-      : /^##\s*\[[^\]]*Chapter\s+\d+\b[^\]]*\]\([^)]*\)\s*$/im;
-    const heading = body.match(headingRegex);
+      : null;
+    const anyRegex = /^##\s*\[[^\]]*Chapter\s+\d+\b[^\]]*\]\([^)]*\)\s*$/im;
+    let heading = exactRegex ? body.match(exactRegex) : null;
     if (!heading || heading.index === undefined) {
-      console.log('Jina NovelBin markdown missing exact chapter heading, ignoring page chrome');
-      return { title, content: '', next: nav.next, prev: nav.prev };
+      heading = body.match(anyRegex);
+    }
+    if (heading && heading.index !== undefined) {
+      body = body.slice(heading.index + heading[0].length);
+    } else {
+      console.log('Jina NovelBin markdown missing chapter heading, using heuristic strip');
+      // Drop everything before the URL Source / Markdown Content markers were
+      // already removed; additionally trim a known prelude block if present.
+      const cutoff = body.search(/\n[A-Z][^\n]{40,}\n/);
+      if (cutoff > 0 && cutoff < 4000) body = body.slice(cutoff);
     }
 
-    body = body.slice(heading.index + heading[0].length);
     const lines = body.split('\n');
     while (lines.length) {
       const line = lines[0].trim();
