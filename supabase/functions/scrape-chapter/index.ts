@@ -954,6 +954,26 @@ serve(async (req) => {
 
     const tryJinaMarkdown = async (): Promise<string> => tryJinaUrl(canonicalUrl);
 
+    const repairNovelbinCanonicalFromJina = async (): Promise<boolean> => {
+      if (!hostname.includes('novelbin') || !looksLikeNovelbinChrome(parseJinaMarkdown(jinaMarkdown, canonicalUrl, hostname).content)) return false;
+      for (const candidateUrl of getNovelbinRepairCandidateUrls(canonicalUrl)) {
+        console.log(`NovelBin trying repaired candidate: ${candidateUrl}`);
+        const candidateMd = await tryJinaUrl(candidateUrl);
+        if (!candidateMd) continue;
+        const candidateParsed = parseJinaMarkdown(candidateMd, candidateUrl, hostname);
+        if (candidateParsed.content.length > 500 && !looksLikeNovelbinChrome(candidateParsed.content)) {
+          canonicalUrl = candidateUrl;
+          jinaMarkdown = candidateMd;
+          html = '';
+          response = new Response('', { status: 200 });
+          if (candidateParsed.title) title = candidateParsed.title;
+          console.log(`NovelBin repaired canonical chapter URL via Jina candidate: ${canonicalUrl}`);
+          return true;
+        }
+      }
+      return false;
+    };
+
     if (hostname.includes('novelbin') && !catalogContext) {
       const novelId = getNovelbinNovelId(parsedUrl);
       if (novelId) {
