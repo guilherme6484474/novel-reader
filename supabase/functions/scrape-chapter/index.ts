@@ -527,6 +527,28 @@ function extractNovelbinCanonicalUrlFromMarkdown(md: string, chapterNumber: numb
   return '';
 }
 
+function resolveNovelbinCanonicalFromCatalogMarkdown(currentUrl: string, catalogMarkdown: string): string {
+  const chapterNumber = getNovelbinChapterNumber(currentUrl);
+  if (chapterNumber === null || !catalogMarkdown) return '';
+  const body = catalogMarkdown.includes('Markdown Content:')
+    ? catalogMarkdown.slice(catalogMarkdown.indexOf('Markdown Content:') + 'Markdown Content:'.length)
+    : catalogMarkdown;
+  const line = body
+    .split('\n')
+    .map((item) => item.trim())
+    .find((item) => new RegExp(`^Chapter\\s+${chapterNumber}(?:\\b|\\s*[-:])`, 'i').test(item));
+  if (!line) return '';
+  try {
+    const parsed = new URL(currentUrl);
+    const novelId = getNovelbinNovelId(parsed);
+    if (!novelId) return '';
+    const pathPrefix = parsed.hostname.includes('novelbin.me') ? 'novel-book' : 'b';
+    return `${parsed.origin}/${pathPrefix}/${novelId}/${slugifyNovelbinChapterTitle(line)}`;
+  } catch {
+    return '';
+  }
+}
+
 async function getNovelbinCatalogContext(
   currentUrl: string,
   parsedUrl: URL,
