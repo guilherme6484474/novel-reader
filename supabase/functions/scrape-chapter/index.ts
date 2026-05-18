@@ -967,6 +967,10 @@ serve(async (req) => {
 
     // Extract content with site-aware selectors
     let content = html ? trimChapterContent(extractContent(html, hostname), title, hostname) : '';
+    if (hostname.includes('novelbin') && looksLikeNovelbinChrome(content)) {
+      console.log('NovelBin extracted page chrome/menu instead of chapter text, forcing fallback');
+      content = '';
+    }
 
     // If we still don't have content, fall back to Jina Reader markdown.
     if (!content || content.length < 100) {
@@ -976,7 +980,9 @@ serve(async (req) => {
       }
       if (jinaMarkdown) {
         const parsed = parseJinaMarkdown(jinaMarkdown, canonicalUrl, hostname);
-        if (parsed.content && parsed.content.length > (content?.length || 0)) {
+        if (parsed.content && hostname.includes('novelbin') && looksLikeNovelbinChrome(parsed.content)) {
+          console.log('NovelBin Jina fallback returned page chrome/menu, ignoring');
+        } else if (parsed.content && parsed.content.length > (content?.length || 0)) {
           content = parsed.content;
           if (!title && parsed.title) title = parsed.title;
         }
