@@ -6,9 +6,7 @@ import {
 } from "@/components/ui/select";
 import { useTTS } from "@/hooks/use-tts";
 import { useIsAdmin } from "@/hooks/use-is-admin";
-import { initCloudAudio, CLOUD_VOICES, getAudioMode, setAudioMode, getCloudVoice, setCloudVoice, type AudioPlaybackMode } from '@/lib/cloud-tts';
-import { getTTSEngine, setTTSEngine, type TTSEnginePreference } from '@/lib/native-tts';
-import { PIPER_VOICES, getPiperVoice, setPiperVoice, downloadPiperVoice, isPiperSupported, preloadPiperModule, type PiperVoiceId } from '@/lib/piper-tts';
+import { isNative } from '@/lib/native-tts';
 import { usePwaInstall } from "@/hooks/use-pwa-install";
 import { scrapeChapter, translateChapterStream, type ChapterData } from "@/lib/api/novel";
 import { getCachedTranslation, setCachedTranslation, clearTranslationCache } from "@/lib/translation-cache";
@@ -24,7 +22,7 @@ import {
   BookOpen, ChevronLeft, ChevronRight, Globe, Loader2,
   Pause, Play, Square, Volume2, Settings2, Search,
   Moon, Sun, LogIn, LogOut, History, X, Trash2, Minus, Plus, Type,
-  RefreshCw, Download, BarChart3, Radio, Mic, Undo2, ArchiveRestore,
+  RefreshCw, Download, BarChart3, Mic, Undo2, ArchiveRestore,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
@@ -195,17 +193,6 @@ const Index = () => {
   const pendingScrollRestoreRef = useRef<{ pos: number; pct: number } | null>(null);
   const restoredScrollRef = useRef(false);
   const [autoRead, setAutoRead] = useState(() => localStorage.getItem('nr-autoRead') === 'true');
-  const [audioMode, setAudioModeState] = useState<AudioPlaybackMode>(getAudioMode);
-  const [cloudVoice, setCloudVoiceState] = useState(getCloudVoice);
-  const [ttsEngine, setTtsEngineState] = useState<TTSEnginePreference>(getTTSEngine);
-  const [piperVoice, setPiperVoiceState] = useState<PiperVoiceId>(getPiperVoice);
-  const [piperDownloading, setPiperDownloading] = useState(false);
-  const [piperProgress, setPiperProgress] = useState(0);
-
-  // Pre-load Piper WASM module if already selected
-  useEffect(() => {
-    if (ttsEngine === 'piper') preloadPiperModule();
-  }, []);
   const autoReadRef = useRef(autoRead);
   const tts = useTTS();
   const { isAdmin } = useIsAdmin();
