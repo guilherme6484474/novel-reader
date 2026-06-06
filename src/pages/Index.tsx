@@ -6,9 +6,7 @@ import {
 } from "@/components/ui/select";
 import { useTTS } from "@/hooks/use-tts";
 import { useIsAdmin } from "@/hooks/use-is-admin";
-import { initCloudAudio, CLOUD_VOICES, getAudioMode, setAudioMode, getCloudVoice, setCloudVoice, type AudioPlaybackMode } from '@/lib/cloud-tts';
-import { getTTSEngine, setTTSEngine, type TTSEnginePreference } from '@/lib/native-tts';
-import { PIPER_VOICES, getPiperVoice, setPiperVoice, downloadPiperVoice, isPiperSupported, preloadPiperModule, type PiperVoiceId } from '@/lib/piper-tts';
+import { isNative } from '@/lib/native-tts';
 import { usePwaInstall } from "@/hooks/use-pwa-install";
 import { scrapeChapter, translateChapterStream, type ChapterData } from "@/lib/api/novel";
 import { getCachedTranslation, setCachedTranslation, clearTranslationCache } from "@/lib/translation-cache";
@@ -24,7 +22,7 @@ import {
   BookOpen, ChevronLeft, ChevronRight, Globe, Loader2,
   Pause, Play, Square, Volume2, Settings2, Search,
   Moon, Sun, LogIn, LogOut, History, X, Trash2, Minus, Plus, Type,
-  RefreshCw, Download, BarChart3, Radio, Mic, Undo2, ArchiveRestore,
+  RefreshCw, Download, BarChart3, Mic, Undo2, ArchiveRestore,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
@@ -195,17 +193,6 @@ const Index = () => {
   const pendingScrollRestoreRef = useRef<{ pos: number; pct: number } | null>(null);
   const restoredScrollRef = useRef(false);
   const [autoRead, setAutoRead] = useState(() => localStorage.getItem('nr-autoRead') === 'true');
-  const [audioMode, setAudioModeState] = useState<AudioPlaybackMode>(getAudioMode);
-  const [cloudVoice, setCloudVoiceState] = useState(getCloudVoice);
-  const [ttsEngine, setTtsEngineState] = useState<TTSEnginePreference>(getTTSEngine);
-  const [piperVoice, setPiperVoiceState] = useState<PiperVoiceId>(getPiperVoice);
-  const [piperDownloading, setPiperDownloading] = useState(false);
-  const [piperProgress, setPiperProgress] = useState(0);
-
-  // Pre-load Piper WASM module if already selected
-  useEffect(() => {
-    if (ttsEngine === 'piper') preloadPiperModule();
-  }, []);
   const autoReadRef = useRef(autoRead);
   const tts = useTTS();
   const { isAdmin } = useIsAdmin();
@@ -901,183 +888,18 @@ const Index = () => {
                   <span className="text-xs font-medium text-foreground w-8 sm:w-10 text-right">{tts.pitch}</span>
                 </div>
 
-                {/* Cloud Voice Selector — only when Cloud TTS engine is selected */}
-                {ttsEngine === 'cloud' && (
-                <div className="mt-3 pt-3 border-t border-border/40">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Mic className="h-3 w-3" /> Voz na Nuvem (Google Cloud)
-                  </p>
-                  <Select
-                    value={cloudVoice || '__default__'}
-                    onValueChange={(v) => {
-                      const val = v === '__default__' ? '' : v;
-                      setCloudVoiceState(val);
-                      setCloudVoice(val);
-                    }}
-                  >
-                    <SelectTrigger className="h-8 text-xs rounded-lg bg-background">
-                      <SelectValue placeholder="Voz padrão" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-60">
-                      <SelectItem value="__default__">🔊 Voz padrão (Feminina BR)</SelectItem>
-                      {(() => {
-                        const langGroups = new Map<string, typeof CLOUD_VOICES>();
-                        CLOUD_VOICES.forEach(v => {
-                          const base = v.lang.split('-').slice(0, 2).join('-');
-                          if (!langGroups.has(base)) langGroups.set(base, []);
-                          langGroups.get(base)!.push(v);
-                        });
-                        const langLabels: Record<string, string> = {
-                          'pt-BR': '🇧🇷 Português (BR)', 'pt-PT': '🇵🇹 Português (PT)',
-                          'en-US': '🇺🇸 English (US)', 'en-GB': '🇬🇧 English (UK)',
-                          'es-ES': '🇪🇸 Español (ES)', 'es-US': '🇪🇸 Español (US)',
-                          'fr-FR': '🇫🇷 Français', 'ja-JP': '🇯🇵 日本語',
-                          'ko-KR': '🇰🇷 한국어', 'cmn-CN': '🇨🇳 中文',
-                          'de-DE': '🇩🇪 Deutsch', 'it-IT': '🇮🇹 Italiano',
-                          'ru-RU': '🇷🇺 Русский', 'ar-XA': '🇸🇦 العربية',
-                          'hi-IN': '🇮🇳 हिन्दी',
-                        };
-                        return Array.from(langGroups.entries()).map(([lang, voices]) => (
-                          <div key={lang}>
-                            <div className="px-2 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-wider sticky top-0 bg-popover">
-                              {langLabels[lang] || lang}
-                            </div>
-                            {voices.map(v => (
-                              <SelectItem key={v.id} value={v.id}>
-                                {v.name} {v.id.includes('Wavenet') ? '✨' : ''} ({v.gender === 'FEMALE' ? '♀' : '♂'})
-                              </SelectItem>
-                            ))}
-                          </div>
-                        ));
-                      })()}
-                    </SelectContent>
-                  </Select>
-                </div>
-                )}
 
-                {/* Audio API Toggle */}
                 <div className="mt-3 pt-3 border-t border-border/40">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1.5">
                     <Mic className="h-3 w-3" /> Motor de Voz
                   </p>
-                  <div className="flex gap-2 flex-wrap">
-                    <Button
-                      variant={ttsEngine === 'cloud' ? 'default' : 'outline'}
-                      size="sm"
-                      className="flex-1 h-8 text-xs rounded-lg min-w-[80px]"
-                      onClick={() => { setTtsEngineState('cloud'); setTTSEngine('cloud'); }}
-                    >
-                      ☁️ Cloud
-                    </Button>
-                    <Button
-                      variant={ttsEngine === 'webspeech' ? 'default' : 'outline'}
-                      size="sm"
-                      className="flex-1 h-8 text-xs rounded-lg min-w-[80px]"
-                      onClick={() => { setTtsEngineState('webspeech'); setTTSEngine('webspeech'); }}
-                    >
-                      📱 Web
-                    </Button>
-                    {isPiperSupported() && (
-                      <Button
-                        variant={ttsEngine === 'piper' ? 'default' : 'outline'}
-                        size="sm"
-                        className="flex-1 h-8 text-xs rounded-lg min-w-[80px]"
-                        onClick={() => { setTtsEngineState('piper'); setTTSEngine('piper'); preloadPiperModule(); }}
-                      >
-                        🧠 Piper
-                      </Button>
-                    )}
-                  </div>
-                  <p className="text-[9px] text-muted-foreground mt-1">
-                    {ttsEngine === 'cloud'
-                      ? '☁️ Vozes HD na nuvem. Funciona em background. Requer internet.'
-                      : ttsEngine === 'piper'
-                      ? '🧠 IA neural offline e gratuita. Baixa o modelo uma vez (~15MB). Sem internet após download.'
-                      : '📱 Vozes locais do dispositivo. Offline e gratuito. Pode ser instável em celulares.'}
+                  <p className="text-[10px] text-muted-foreground">
+                    {isNative()
+                      ? "📱 Usando o motor de voz nativo do dispositivo. Toca com a tela apagada."
+                      : "🌐 Usando a Web Speech API do navegador. Vozes dependem do sistema operacional."}
                   </p>
                 </div>
 
-                {/* Piper Voice Selector — only when Piper engine is selected */}
-                {ttsEngine === 'piper' && (
-                <div className="mt-3 pt-3 border-t border-border/40">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    🧠 Voz Piper (Offline)
-                  </p>
-                  <Select
-                    value={piperVoice}
-                    onValueChange={(v) => {
-                      const vid = v as PiperVoiceId;
-                      setPiperVoiceState(vid);
-                      setPiperVoice(vid);
-                      // Pre-download the selected voice
-                      setPiperDownloading(true);
-                      setPiperProgress(0);
-                      downloadPiperVoice(vid, (pct) => setPiperProgress(pct))
-                        .then(() => setPiperDownloading(false))
-                        .catch(() => setPiperDownloading(false));
-                    }}
-                  >
-                    <SelectTrigger className="h-9 text-xs rounded-lg border-border/60">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PIPER_VOICES.map(v => (
-                        <SelectItem key={v.id} value={v.id} className="text-xs">
-                          {v.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {piperDownloading && (
-                    <div className="mt-2">
-                      <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-primary rounded-full transition-all duration-300"
-                          style={{ width: `${piperProgress}%` }}
-                        />
-                      </div>
-                      <p className="text-[9px] text-muted-foreground mt-1">
-                        Baixando modelo de voz... {piperProgress}%
-                      </p>
-                    </div>
-                  )}
-                  <p className="text-[9px] text-muted-foreground mt-1">
-                    O modelo é baixado uma vez e funciona offline depois.
-                  </p>
-                </div>
-                )}
-
-                {/* Audio API Toggle (only relevant for Cloud TTS) */}
-                {ttsEngine === 'cloud' && (
-                <div className="mt-3 pt-3 border-t border-border/40">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Radio className="h-3 w-3" /> Modo de Áudio Cloud
-                  </p>
-                  <div className="flex gap-2">
-                    <Button
-                      variant={audioMode === 'htmlaudio' ? 'default' : 'outline'}
-                      size="sm"
-                      className="flex-1 h-8 text-xs rounded-lg"
-                      onClick={() => { setAudioModeState('htmlaudio'); setAudioMode('htmlaudio'); }}
-                    >
-                      HTML Audio
-                    </Button>
-                    <Button
-                      variant={audioMode === 'audiocontext' ? 'default' : 'outline'}
-                      size="sm"
-                      className="flex-1 h-8 text-xs rounded-lg"
-                      onClick={() => { setAudioModeState('audiocontext'); setAudioMode('audiocontext'); }}
-                    >
-                      AudioContext
-                    </Button>
-                  </div>
-                  <p className="text-[9px] text-muted-foreground mt-1">
-                    {audioMode === 'htmlaudio'
-                      ? '✅ Recomendado. Melhor compatibilidade e suporte a background.'
-                      : '⚠️ Baixa latência, mas pode não funcionar em background.'}
-                  </p>
-                </div>
-                )}
 
                 {/* TTS Diagnostics */}
                 <TTSDiagnosticsPanel
@@ -1491,7 +1313,6 @@ const Index = () => {
                   size="sm"
                   disabled={tts.isLoading}
                   onClick={async () => {
-                    initCloudAudio();
                     // Set chapter info in lock screen notification
                     if (chapter) {
                       updateMediaSessionMetadata(chapter.title, 'Novel Reader');

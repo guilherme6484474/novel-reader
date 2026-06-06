@@ -4,22 +4,17 @@ import { ttsLog, ttsError } from "@/lib/tts-debug-log";
 import { toast } from "sonner";
 import { acquireWakeLock, releaseWakeLock, setMediaSessionHandlers, updateMediaSessionPlaybackState } from "@/lib/keep-awake";
 import { startForegroundService, stopForegroundService } from "@/lib/foreground-service";
-import { piperSpeak, piperStop, getPiperVoice, warmPiperVoice, initPiperAudio } from "@/lib/piper-tts";
 
 import { getTTSEngine } from "@/lib/native-tts";
 
 // Chunk sizes per engine
-const MAX_CHUNK_CLOUD = 4000; // Google Cloud TTS supports up to 5000 chars
+const MAX_CHUNK_NATIVE = 4000; // Native Android/iOS TTS handles long input well
 const MAX_CHUNK_WEBSPEECH = 200; // WebSpeech works best with short utterances
-const MAX_CHUNK_PIPER_INITIAL = 140; // Piper: start faster with a smaller first chunk
-const MAX_CHUNK_PIPER = 420; // Browser-safe chunk size for Piper
-const MAX_CHUNK_PIPER_NATIVE = 900; // Fewer chunk transitions when the screen is off on Android
 
 function getMaxChunkChars(): number {
   const engine = getTTSEngine();
   if (!isNative() && engine === 'webspeech') return MAX_CHUNK_WEBSPEECH;
-  if (engine === 'piper') return MAX_CHUNK_PIPER;
-  return MAX_CHUNK_CLOUD;
+  return MAX_CHUNK_NATIVE;
 }
 
 function splitIntoSentences(text: string, maxChunk = getMaxChunkChars()): string[] {
@@ -68,17 +63,7 @@ function splitIntoSentences(text: string, maxChunk = getMaxChunkChars()): string
 }
 
 function splitTextForPlayback(text: string): string[] {
-  if (getTTSEngine() !== 'piper') return splitIntoSentences(text);
-
-  const firstPass = splitIntoSentences(text, MAX_CHUNK_PIPER_INITIAL);
-  const firstChunk = firstPass[0];
-  if (!firstChunk) return [];
-
-  const remainingText = text.slice(firstChunk.length);
-  if (!remainingText.trim()) return [firstChunk];
-
-  const followUpChunkSize = isNative() ? MAX_CHUNK_PIPER_NATIVE : MAX_CHUNK_PIPER;
-  return [firstChunk, ...splitIntoSentences(remainingText, followUpChunkSize)];
+  return splitIntoSentences(text);
 }
 
 function buildWordMap(text: string): { word: string; start: number }[] {
@@ -270,21 +255,8 @@ export function useTTS() {
   }, []);
 
   const updatePosition = useCallback((globalCharIndex: number, force = false) => {
-    if (!force && getTTSEngine() === 'piper') {
-      const now = Date.now();
-      const hidden = typeof document !== 'undefined' && document.visibilityState !== 'visible';
-      const minInterval = hidden ? 450 : 120;
-      const minDelta = hidden ? 80 : 18;
-      const charDelta = Math.abs(globalCharIndex - lastUiUpdateRef.current.charIndex);
-
-      if (now - lastUiUpdateRef.current.ts < minInterval && charDelta < minDelta) {
-        return;
-      }
-
-      lastUiUpdateRef.current = { ts: now, charIndex: globalCharIndex };
-    } else {
-      lastUiUpdateRef.current = { ts: Date.now(), charIndex: globalCharIndex };
-    }
+    lastUiUpdateRef.current = { ts: Date.now(), charIndex: globalCharIndex };
+    void force;
 
     setActiveCharIndex(globalCharIndex);
     const totalLen = textRef.current.length;
@@ -551,92 +523,16 @@ export function useTTS() {
     speechSynthesis.speak(utterance);
   }, [clearWordTimer, updatePosition, startWordStepper, speakChunkNative]);
 
-  // ─── Piper TTS chunk speaker (offline WASM) ───
-  // Optimized with pre-buffering: synthesizes next chunk while current plays
-  const speakChunkPiper = useCallback(async (chunkIndex: number, gen: number) => {
-    if (!speakingRef.current || gen !== generationRef.current) return;
-    const chunks = chunksRef.current;
-    const offsets = chunkOffsetsRef.current;
-
-    if (chunkIndex >= chunks.length) {
-      speakingRef.current = false;
-      setIsSpeaking(false);
-      setIsPaused(false);
-      setProgress(100);
-      setActiveCharIndex(-1);
-      clearWordTimer();
-      onEndCallbackRef.current?.();
-      return;
-    }
-
-    const chunkText = chunks[chunkIndex];
-    const globalOffset = offsets[chunkIndex];
-    currentChunkRef.current = chunkIndex;
-
-    updatePosition(globalOffset, true);
-    chunkStartTimeRef.current = performance.now();
-    if (typeof document === 'undefined' || document.visibilityState === 'visible') {
-      startWordStepper(chunkText, globalOffset, rateRef.current);
-    } else {
-      clearWordTimer();
-    }
-
-    const nextChunkIdx = chunkIndex + 1;
-    const nextChunkText = nextChunkIdx < chunks.length ? chunks[nextChunkIdx] : undefined;
-
-    try {
-      const result = await piperSpeak(chunkText, getPiperVoice(), {
-        nextText: nextChunkText,
-        rate: rateRef.current,
-        pitch: pitchRef.current,
-      });
-
-      if (chunkIndex === 0) {
-        setDebugInfo(prev => prev + ` | Engine: ${result.engine}`);
-      }
-
-      clearWordTimer();
-
-      if (speakingRef.current && gen === generationRef.current && !pausedRef.current) {
-        speakChunkPiper(nextChunkIdx, gen);
-      }
-    } catch (e) {
-      // Stale generation (paused, stopped, or new speak session) — ignore silently
-      if (gen !== generationRef.current) {
-        clearWordTimer();
-        return;
-      }
-
-      const message = e instanceof Error ? e.message : String(e);
-      ttsError(`Piper chunk ${chunkIndex} error: ${message}`);
-      toast.error("Erro no Piper TTS", {
-        description: message.length > 100 ? message.slice(0, 100) + '…' : message,
-        duration: 5000,
-      });
-
-      clearWordTimer();
-      speakingRef.current = false;
-      setIsSpeaking(false);
-      setIsPaused(false);
-      setActiveCharIndex(-1);
-      updateMediaSessionPlaybackState('none');
-      void releaseWakeLock();
-      void stopForegroundService();
-    }
-  }, [clearWordTimer, updatePosition, startWordStepper]);
-
   // ─── Unified speak function ───
   // Routes to the correct speaker based on engine preference
   const speakChunk = useCallback((chunkIndex: number, gen: number) => {
     const engine = getTTSEngine();
-    if (engine === 'piper') {
-      speakChunkPiper(chunkIndex, gen);
-    } else if (!isNative() && engine === 'webspeech') {
+    if (!isNative() && engine === 'webspeech') {
       speakChunkWeb(chunkIndex, gen);
     } else {
       speakChunkNative(chunkIndex, gen);
     }
-  }, [speakChunkNative, speakChunkWeb, speakChunkPiper]);
+  }, [speakChunkNative, speakChunkWeb]);
 
   const cancelCurrentSpeech = useCallback(async (resetUi: boolean) => {
     // Increment generation to invalidate all in-flight chunk callbacks
@@ -645,8 +541,6 @@ export function useTTS() {
     pausedRef.current = false;
     lastUiUpdateRef.current = { ts: 0, charIndex: -1 };
 
-    // Stop all engines in parallel — don't let one block the other
-    piperStop();
     const stopPromise = nativeStop().catch(() => {});
 
     clearWordTimer();
@@ -665,10 +559,6 @@ export function useTTS() {
   }, [clearWordTimer]);
 
   const speakFromIndex = useCallback(async (text: string, startCharIndex = 0) => {
-    if (getTTSEngine() === 'piper') {
-      initPiperAudio();
-    }
-
     await cancelCurrentSpeech(false);
 
     const textToSpeak = text.slice(startCharIndex);
@@ -714,16 +604,12 @@ export function useTTS() {
     setIsPaused(true);
     clearWordTimer();
     updateMediaSessionPlaybackState('paused');
-    piperStop(true); // preserve pre-buffer for resume
     void nativeStop();
   }, [clearWordTimer]);
 
   // Improved resume — new generation prevents stale callbacks from interfering
   const resume = useCallback(() => {
     if (chunksRef.current.length === 0) return;
-    if (getTTSEngine() === 'piper') {
-      initPiperAudio();
-    }
     const gen = ++generationRef.current;
     pausedRef.current = false;
     speakingRef.current = true;
@@ -741,13 +627,8 @@ export function useTTS() {
 
   const speak = useCallback(async (text: string) => {
     ttsLog('[useTTS] speak() called, textLen=' + text.length);
-    if (getTTSEngine() === 'piper') {
-      initPiperAudio();
-    }
     setIsLoading(true);
     try {
-      const isPiper = getTTSEngine() === 'piper';
-
       // Wire lock-screen media controls synchronously (web only)
       setMediaSessionHandlers({
         onPause: () => pause(),
@@ -761,9 +642,6 @@ export function useTTS() {
       const bgSetup = Promise.all([
         startForegroundService().catch(e => ttsError('[useTTS] FG service failed: ' + String(e))),
         acquireWakeLock().catch(e => ttsError('[useTTS] Wake lock failed: ' + String(e))),
-        isPiper
-          ? warmPiperVoice(getPiperVoice()).catch(e => ttsError('[useTTS] Piper warm failed: ' + String(e)))
-          : Promise.resolve(),
       ]);
 
       // Start speaking without waiting for background setup
