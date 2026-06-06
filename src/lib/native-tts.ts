@@ -1,25 +1,42 @@
 /**
- * Native TTS bridge using @capacitor-community/text-to-speech
- * Falls back to Web Speech API when plugin is not available.
+ * Native TTS bridge using @capacitor-community/text-to-speech.
+ * Falls back to Web Speech API in the browser.
+ *
+ * Engines supported:
+ *  - 'native'    → Android/iOS system TTS plugin (Capacitor). Plays with screen off
+ *                  thanks to Wake Lock + Foreground Service wired in use-tts.
+ *  - 'webspeech' → Browser SpeechSynthesis. Free, offline-ish, but pauses when the
+ *                  screen turns off on mobile browsers (Chrome/WebView limitation).
  */
 import { Capacitor } from '@capacitor/core';
 import { ttsLog, ttsWarn, ttsError } from '@/lib/tts-debug-log';
-import { cloudSpeak, cloudStop, getCloudVoice, preBufferChunk } from '@/lib/cloud-tts';
 
-// ─── TTS Engine preference ───
-export type TTSEnginePreference = 'cloud' | 'webspeech' | 'piper';
+export type TTSEnginePreference = 'webspeech' | 'native';
 
+export function isNative(): boolean {
+  return Capacitor.isNativePlatform();
+}
+
+/**
+ * Read engine preference with migration of legacy values ('cloud' / 'piper').
+ */
 export function getTTSEngine(): TTSEnginePreference {
-  return (localStorage.getItem('nr-ttsEngine') as TTSEnginePreference) || 'cloud';
+  const raw = (typeof localStorage !== 'undefined' && localStorage.getItem('nr-ttsEngine')) || '';
+  if (raw === 'webspeech' || raw === 'native') return raw;
+  // Legacy values ('cloud', 'piper', '') → pick the best for the platform
+  const fallback: TTSEnginePreference = isNative() ? 'native' : 'webspeech';
+  if (raw) {
+    try { localStorage.setItem('nr-ttsEngine', fallback); } catch { /* ignore */ }
+  }
+  return fallback;
 }
 
 export function setTTSEngine(engine: TTSEnginePreference) {
-  localStorage.setItem('nr-ttsEngine', engine);
+  try { localStorage.setItem('nr-ttsEngine', engine); } catch { /* ignore */ }
 }
 
 let CapTTS: typeof import('@capacitor-community/text-to-speech').TextToSpeech | null = null;
 
-// Lazy-load the plugin only in native context
 async function getPlugin() {
   if (CapTTS) return CapTTS;
   if (!isNative()) return null;
@@ -33,10 +50,6 @@ async function getPlugin() {
   }
 }
 
-export function isNative(): boolean {
-  return Capacitor.isNativePlatform();
-}
-
 export interface NativeVoice {
   name: string;
   lang: string;
@@ -44,21 +57,16 @@ export interface NativeVoice {
   voiceURI: string;
 }
 
-// Default fallback voices — always available
 const FALLBACK_VOICES: NativeVoice[] = [
   { name: '🔊 Voz padrão do sistema', lang: 'pt-BR', localService: true, voiceURI: '__system_default__' },
   { name: '🔊 System default voice', lang: 'en-US', localService: true, voiceURI: '__system_default_en__' },
 ];
 
-/**
- * Try loading voices from Web Speech API (available in Android WebView)
- */
 function getWebSpeechVoices(): NativeVoice[] {
   if (typeof speechSynthesis === 'undefined') return [];
   try {
     const voices = speechSynthesis.getVoices();
     if (voices.length > 0) {
-      ttsLog(`Web Speech API returned ${voices.length} voices`);
       return voices.map(v => ({
         name: v.name,
         lang: v.lang,
@@ -75,11 +83,8 @@ function getWebSpeechVoices(): NativeVoice[] {
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | null = null;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      reject(new Error(`[NativeTTS] ${label} timeout after ${timeoutMs}ms`));
-    }, timeoutMs);
+    timer = setTimeout(() => reject(new Error(`[NativeTTS] ${label} timeout after ${timeoutMs}ms`)), timeoutMs);
   });
-
   try {
     return await Promise.race([promise, timeoutPromise]);
   } finally {
@@ -96,10 +101,6 @@ function getErrorMessage(error: unknown): string {
   return String(error ?? 'Unknown error');
 }
 
-function isNoEngineError(message: string): boolean {
-  return message.includes('not available on this device') || message.includes('not supported on this device');
-}
-
 async function resolveBestPluginLanguage(
   plugin: NonNullable<Awaited<ReturnType<typeof getPlugin>>>,
   requestedLang?: string,
@@ -109,108 +110,71 @@ async function resolveBestPluginLanguage(
   const deviceLang = (typeof navigator !== 'undefined' ? navigator.language : '').trim();
   const deviceBase = deviceLang.includes('-') ? deviceLang.split('-')[0] : deviceLang;
 
-  const candidates = Array.from(new Set([
-    requested,
-    requestedBase,
-    deviceLang,
-    deviceBase,
-    'en-US',
-    'en',
-  ].filter(Boolean)));
+  const candidates = Array.from(new Set([requested, requestedBase, deviceLang, deviceBase, 'en-US', 'en'].filter(Boolean)));
 
   for (const lang of candidates) {
     try {
       const result = await plugin.isLanguageSupported({ lang });
       if (result.supported) return lang;
-    } catch {
-      // Ignore and try next candidate
-    }
+    } catch { /* try next */ }
   }
 
   try {
     const langResult = await withTimeout(plugin.getSupportedLanguages(), 1500, 'getSupportedLanguages');
     const languages = (langResult.languages || []).filter(Boolean);
     if (languages.length > 0) {
-      const exactRequested = requested ? languages.find(l => l.toLowerCase() === requested.toLowerCase()) : undefined;
-      if (exactRequested) return exactRequested;
-
-      const requestedPrefix = requestedBase?.toLowerCase();
-      if (requestedPrefix) {
-        const prefByRequested = languages.find(l => l.toLowerCase().startsWith(requestedPrefix));
-        if (prefByRequested) return prefByRequested;
+      if (requested) {
+        const exact = languages.find(l => l.toLowerCase() === requested.toLowerCase());
+        if (exact) return exact;
       }
-
-      const devicePrefix = deviceBase?.toLowerCase();
-      if (devicePrefix) {
-        const prefByDevice = languages.find(l => l.toLowerCase().startsWith(devicePrefix));
-        if (prefByDevice) return prefByDevice;
+      if (requestedBase) {
+        const pref = languages.find(l => l.toLowerCase().startsWith(requestedBase.toLowerCase()));
+        if (pref) return pref;
       }
-
+      if (deviceBase) {
+        const pref = languages.find(l => l.toLowerCase().startsWith(deviceBase.toLowerCase()));
+        if (pref) return pref;
+      }
       return languages[0];
     }
-  } catch {
-    // Fall through to final default
-  }
+  } catch { /* fall through */ }
 
   return requested || deviceLang || 'en-US';
 }
 
-/**
- * Resolve voiceURI to native voice index by matching against plugin voices.
- * FIX #2: Use voiceURI for reliable matching instead of fragile array position.
- */
 async function resolveVoiceIndex(
   plugin: NonNullable<Awaited<ReturnType<typeof getPlugin>>>,
   voiceURI?: string,
 ): Promise<number | undefined> {
   if (!voiceURI) return undefined;
-
   try {
     const result = await withTimeout(plugin.getSupportedVoices(), 2000, 'resolveVoiceIndex');
     const pluginVoices = result.voices || [];
     if (pluginVoices.length === 0) return undefined;
 
-    // Try exact match first
-    const exactIdx = pluginVoices.findIndex(v =>
-      (v.voiceURI || '') === voiceURI || (v.name || '') === voiceURI
-    );
-    if (exactIdx >= 0) {
-      ttsLog(`Voice resolved by URI: index=${exactIdx}, uri=${voiceURI}`);
-      return exactIdx;
-    }
+    const exactIdx = pluginVoices.findIndex(v => (v.voiceURI || '') === voiceURI || (v.name || '') === voiceURI);
+    if (exactIdx >= 0) return exactIdx;
 
-    // Try partial match (voiceURI contains or is contained)
     const partialIdx = pluginVoices.findIndex(v => {
       const uri = (v.voiceURI || v.name || '').toLowerCase();
       const target = voiceURI.toLowerCase();
       return uri.includes(target) || target.includes(uri);
     });
-    if (partialIdx >= 0) {
-      ttsLog(`Voice resolved by partial match: index=${partialIdx}, uri=${voiceURI}`);
-      return partialIdx;
-    }
+    if (partialIdx >= 0) return partialIdx;
   } catch (e) {
     ttsWarn('Failed to resolve voice index: ' + getErrorMessage(e));
   }
-
   return undefined;
 }
 
 export async function getNativeVoices(): Promise<NativeVoice[]> {
-  ttsLog('getNativeVoices() called. isNative: ' + isNative());
   const plugin = await getPlugin();
-  ttsLog('plugin loaded: ' + !!plugin);
 
-  // ─── Try native plugin first ───
   if (plugin) {
-    // Try getSupportedVoices with crash protection (Android 12+ sorting bug)
     for (let attempt = 0; attempt < 4; attempt++) {
       try {
-        ttsLog(`getSupportedVoices attempt ${attempt + 1}...`);
         const result = await withTimeout(plugin.getSupportedVoices(), 2500, 'getSupportedVoices');
         const voices = result.voices || [];
-        ttsLog(`Attempt ${attempt + 1}: ${voices.length} voices`);
-
         if (voices.length > 0) {
           const mapped = voices.map((v, index) => ({
             name: v.name || v.voiceURI || `Voice ${index + 1}`,
@@ -218,32 +182,22 @@ export async function getNativeVoices(): Promise<NativeVoice[]> {
             localService: v.localService ?? true,
             voiceURI: v.voiceURI || v.name || '',
           }));
-          ttsLog('Plugin voices loaded: ' + mapped.length);
           return [...mapped, ...FALLBACK_VOICES];
         }
       } catch (e) {
         const msg = getErrorMessage(e);
         ttsWarn(`getSupportedVoices attempt ${attempt + 1} failed: ${msg}`);
-        if (msg.includes('Comparison method')) {
-          ttsWarn('Known Android sorting bug detected, skipping voice enumeration');
-          break;
-        }
+        if (msg.includes('Comparison method')) break;
       }
       await sleep(500);
     }
 
-    // Try getSupportedLanguages as secondary fallback
     try {
-      ttsLog('Trying getSupportedLanguages fallback...');
       const langResult = await withTimeout(plugin.getSupportedLanguages(), 2000, 'getSupportedLanguages');
       const languages = langResult.languages || [];
-      ttsLog('Language fallback got: ' + languages.length + ' languages');
       if (languages.length > 0) {
         const langVoices = languages.map(lang => ({
-          name: `Voz ${lang}`,
-          lang,
-          localService: true,
-          voiceURI: `lang:${lang}`,
+          name: `Voz ${lang}`, lang, localService: true, voiceURI: `lang:${lang}`,
         }));
         return [...langVoices, ...FALLBACK_VOICES];
       }
@@ -252,47 +206,26 @@ export async function getNativeVoices(): Promise<NativeVoice[]> {
     }
   }
 
-  // ─── Try Web Speech API (works in Android WebView) ───
-  ttsLog('Trying Web Speech API fallback...');
   const webVoices = getWebSpeechVoices();
-  if (webVoices.length > 0) {
-    ttsLog('Web Speech returned ' + webVoices.length + ' voices');
-    return [...webVoices, ...FALLBACK_VOICES];
-  }
+  if (webVoices.length > 0) return [...webVoices, ...FALLBACK_VOICES];
 
-  // If speechSynthesis exists but voices aren't loaded yet, wait and retry
   if (typeof speechSynthesis !== 'undefined') {
     for (let attempt = 0; attempt < 5; attempt++) {
       await sleep(600);
       const delayed = getWebSpeechVoices();
-      if (delayed.length > 0) {
-        ttsLog('Web Speech delayed load: ' + delayed.length + ' voices');
-        return [...delayed, ...FALLBACK_VOICES];
-      }
+      if (delayed.length > 0) return [...delayed, ...FALLBACK_VOICES];
     }
   }
 
-  // ─── Last resort: return guaranteed fallback voices ───
-  ttsWarn('All voice loading methods failed, returning fallback voices');
   return FALLBACK_VOICES;
 }
 
 export async function openNativeTtsInstall(): Promise<boolean> {
-  ttsLog('openNativeTtsInstall called, isNative: ' + isNative());
-  if (!isNative()) {
-    return false;
-  }
-
+  if (!isNative()) return false;
   const plugin = await getPlugin();
-  if (!plugin) {
-    ttsWarn('openInstall: no plugin available');
-    return false;
-  }
-
+  if (!plugin) return false;
   try {
-    ttsLog('Calling plugin.openInstall()...');
     await withTimeout(plugin.openInstall(), 5000, 'openInstall');
-    ttsLog('openInstall succeeded');
     return true;
   } catch (error) {
     ttsWarn('openInstall failed: ' + getErrorMessage(error));
@@ -316,7 +249,6 @@ export function setDiagError(msg: string | null) { lastDiagError = msg; }
 export function clearDiagError() { lastDiagError = null; }
 
 export async function runTTSDiagnostics(): Promise<TTSDiagnostics> {
-  ttsLog('runTTSDiagnostics() called');
   const diag: TTSDiagnostics = {
     isNativePlatform: isNative(),
     pluginAvailable: false,
@@ -332,59 +264,41 @@ export async function runTTSDiagnostics(): Promise<TTSDiagnostics> {
     try {
       const plugin = await getPlugin();
       diag.pluginAvailable = !!plugin;
-      ttsLog('Diag: pluginAvailable = ' + diag.pluginAvailable);
-
       if (plugin) {
         try {
           const langResult = await withTimeout(plugin.getSupportedLanguages(), 3000, 'diag-langs');
           diag.supportedLanguages = (langResult.languages || []).sort();
           diag.pluginReady = true;
-          ttsLog('Diag: pluginReady, langs = ' + diag.supportedLanguages.length);
-        } catch (e) {
-          ttsWarn('Diag: getSupportedLanguages failed: ' + getErrorMessage(e));
-        }
-
+        } catch (e) { ttsWarn('Diag: getSupportedLanguages failed: ' + getErrorMessage(e)); }
         try {
           const voiceResult = await withTimeout(plugin.getSupportedVoices(), 3000, 'diag-voices');
           diag.voiceCount = (voiceResult.voices || []).length;
-          ttsLog('Diag: voiceCount = ' + diag.voiceCount);
         } catch (e) {
           const msg = getErrorMessage(e);
           ttsWarn('Diag: getSupportedVoices failed: ' + msg);
-          // Capture this as the last error for display
           if (msg.includes('Comparison method')) {
             diag.lastError = 'Bug Android: erro de sorting nas vozes. O motor TTS pode funcionar mesmo assim.';
           }
         }
       }
-    } catch (e) {
-      ttsWarn('Diag: plugin load failed: ' + getErrorMessage(e));
-    }
+    } catch (e) { ttsWarn('Diag: plugin load failed: ' + getErrorMessage(e)); }
   }
 
   if (diag.webSpeechAvailable) {
-    try { diag.webSpeechVoiceCount = speechSynthesis.getVoices().length; } catch {}
-    ttsLog('Diag: webSpeechVoiceCount = ' + diag.webSpeechVoiceCount);
+    try { diag.webSpeechVoiceCount = speechSynthesis.getVoices().length; } catch { /* ignore */ }
   }
 
-  // Evita exibir erro antigo quando o motor nativo já está operacional
   if (diag.isNativePlatform && diag.pluginReady) {
     clearDiagError();
     diag.lastError = null;
   }
 
-  ttsLog('Diagnostics result: ' + JSON.stringify(diag));
   return diag;
 }
 
-// FIX #6: Aggressive timeout for fast fallback to Cloud TTS
-const SPEAK_TIMEOUT_MS = 5000;
-
 /**
- * Speak text — tries native plugin first, falls back to Web Speech API.
- * Returns info about which engine was used.
- *
- * FIX #2: Accepts voiceURI instead of numeric index for reliable voice matching.
+ * Speak text — Android: native plugin only. Web: Web Speech API.
+ * `nextChunkText` is accepted for API stability but no longer used.
  */
 export async function nativeSpeak(options: {
   text: string;
@@ -392,113 +306,60 @@ export async function nativeSpeak(options: {
   rate?: number;
   pitch?: number;
   voiceURI?: string;
-  nextChunkText?: string; // text of next chunk for pre-buffering
+  nextChunkText?: string;
 }): Promise<{ engine: string }> {
-  ttsLog('nativeSpeak: textLen=' + options.text.length + ' lang=' + options.lang + ' rate=' + options.rate + ' voiceURI=' + options.voiceURI + ' isNative=' + isNative());
+  ttsLog('nativeSpeak: textLen=' + options.text.length + ' lang=' + options.lang + ' isNative=' + isNative());
 
-  const cloudVoice = getCloudVoice();
-  const cloudOpts = {
-    text: options.text,
-    lang: options.lang || 'pt-BR',
-    rate: options.rate,
-    pitch: options.pitch,
-    voiceName: cloudVoice || undefined,
-  };
-
-  // Pre-buffer next chunk in background (fire-and-forget)
-  if (options.nextChunkText) {
-    preBufferChunk({
-      text: options.nextChunkText,
-      lang: options.lang || 'pt-BR',
-      rate: options.rate,
-      pitch: options.pitch,
-      voiceName: cloudVoice || undefined,
-    }).catch(() => {});
-  }
-
-  // ─── ANDROID NATIVE: Skip ALL local engines, go directly to Cloud TTS ───
   if (isNative()) {
-    ttsLog('Native platform detected — using Cloud TTS directly');
+    const plugin = await getPlugin();
+    if (!plugin) {
+      throw new Error('Motor TTS nativo indisponível. Instale ou ative um motor de voz nas configurações do Android.');
+    }
+    const lang = await resolveBestPluginLanguage(plugin, options.lang);
+    const voiceIdx = await resolveVoiceIndex(plugin, options.voiceURI);
     try {
-      const cloudResult = await cloudSpeak(cloudOpts);
+      await plugin.speak({
+        text: options.text,
+        lang,
+        rate: options.rate ?? 1.0,
+        pitch: options.pitch ?? 1.0,
+        volume: 1.0,
+        category: 'playback',
+        ...(voiceIdx !== undefined ? { voice: voiceIdx } : {}),
+      });
       clearDiagError();
-      ttsLog('Cloud TTS succeeded on native: ' + cloudResult.engine);
-      return cloudResult;
-    } catch (cloudErr) {
-      const cloudMsg = cloudErr instanceof Error ? cloudErr.message : String(cloudErr);
-      ttsError('Cloud TTS failed on native: ' + cloudMsg);
-      throw new Error('Falha ao reproduzir áudio na nuvem. Verifique sua conexão de internet. Detalhe: ' + cloudMsg);
+      return { engine: `native(${lang}${voiceIdx !== undefined ? `#${voiceIdx}` : ''})` };
+    } catch (e) {
+      const msg = getErrorMessage(e);
+      ttsError('Native plugin.speak failed: ' + msg);
+      setDiagError(msg);
+      throw new Error(msg);
     }
   }
 
-  // ─── WEB BROWSER: Check engine preference ───
-  const enginePref = getTTSEngine();
-
-  if (enginePref === 'webspeech') {
-    // User chose WebSpeech (offline, free, but stops in background)
-    ttsLog('Browser: WebSpeech mode selected by user');
-    const webResult = await tryWebSpeech(options);
-    if (webResult) {
-      clearDiagError();
-      return webResult;
-    }
-    // Fallback to Cloud if WebSpeech fails
-    ttsLog('WebSpeech failed, falling back to Cloud TTS...');
-  }
-
-  // Cloud TTS (default) — HTML Audio keeps playing in background
-  ttsLog('Browser: Using Cloud TTS (HTML Audio) for background playback support');
-  try {
-    const cloudResult = await cloudSpeak(cloudOpts);
+  const webResult = await tryWebSpeech(options);
+  if (webResult) {
     clearDiagError();
-    ttsLog('Cloud TTS succeeded on browser: ' + cloudResult.engine);
-    return cloudResult;
-  } catch (cloudErr) {
-    const cloudMsg = cloudErr instanceof Error ? cloudErr.message : String(cloudErr);
-    ttsWarn('Cloud TTS failed on browser: ' + cloudMsg);
-    
-    // If Cloud was the preference, fallback to WebSpeech
-    if (enginePref === 'cloud') {
-      ttsLog('Falling back to Web Speech API...');
-      const webResult = await tryWebSpeech(options);
-      if (webResult) {
-        clearDiagError();
-        return webResult;
-      }
-    }
+    return webResult;
   }
-
-  throw new Error('Nenhum motor de voz produziu áudio. Verifique sua conexão de internet.');
+  throw new Error('Web Speech API não produziu áudio. Verifique se há vozes instaladas no navegador.');
 }
 
-/**
- * Try speaking with Web Speech API. Returns result or null if unavailable.
- */
 function tryWebSpeech(options: {
   text: string;
   lang?: string;
   rate?: number;
   pitch?: number;
 }): Promise<{ engine: string } | null> {
-  if (typeof speechSynthesis === 'undefined') {
-    ttsLog('speechSynthesis not available');
-    return Promise.resolve(null);
-  }
+  if (typeof speechSynthesis === 'undefined') return Promise.resolve(null);
 
   return new Promise<{ engine: string } | null>((resolve) => {
-    // Cancel any ongoing speech first
-    try { speechSynthesis.cancel(); } catch {}
+    try { speechSynthesis.cancel(); } catch { /* ignore */ }
 
     const doSpeak = () => {
       try {
         const voices = speechSynthesis.getVoices();
-        ttsLog('WebSpeech doSpeak: ' + voices.length + ' voices available');
-
-        if (voices.length === 0) {
-          ttsWarn('WebSpeech has 0 voices — cannot produce audio');
-          resolve(null);
-          return;
-        }
+        if (voices.length === 0) { resolve(null); return; }
 
         const utterance = new SpeechSynthesisUtterance(options.text);
         utterance.lang = options.lang || 'pt-BR';
@@ -506,13 +367,9 @@ function tryWebSpeech(options: {
         utterance.pitch = options.pitch || 1.0;
         utterance.volume = 1.0;
 
-        // Try to find a matching voice
         const langPrefix = options.lang?.split('-')[0] || 'pt';
         const match = voices.find(v => v.lang.startsWith(langPrefix));
-        if (match) {
-          utterance.voice = match;
-          ttsLog('Using WebSpeech voice: ' + match.name + ' (' + match.lang + ')');
-        }
+        if (match) utterance.voice = match;
 
         let settled = false;
         let speechStarted = false;
@@ -522,43 +379,33 @@ function tryWebSpeech(options: {
           resolve(result);
         };
 
-        utterance.onstart = () => {
-          speechStarted = true;
-          ttsLog('WebSpeech onstart fired — speech is playing');
-        };
-
+        utterance.onstart = () => { speechStarted = true; };
         utterance.onend = () => settle({ engine: `webSpeech(${match?.name || 'default'})` });
         utterance.onerror = (e) => {
-          ttsWarn('WebSpeech error: ' + e.error);
           if (e.error === 'canceled' || e.error === 'interrupted') {
             settle({ engine: 'webSpeech-canceled' });
           } else {
+            ttsWarn('WebSpeech error: ' + e.error);
             settle(null);
           }
         };
 
-        // Safety timeout: only bail if speech never STARTED within 5s.
-        // Once started, we wait for onend (no timeout).
         setTimeout(() => {
           if (!settled && !speechStarted) {
-            ttsWarn('WebSpeech timeout — speech never started after 5s');
-            try { speechSynthesis.cancel(); } catch {}
+            try { speechSynthesis.cancel(); } catch { /* ignore */ }
             settle(null);
           }
         }, 5000);
 
         speechSynthesis.speak(utterance);
-        ttsLog('speechSynthesis.speak() called');
       } catch (e) {
         ttsWarn('WebSpeech doSpeak exception: ' + getErrorMessage(e));
         resolve(null);
       }
     };
 
-    // Ensure voices are loaded
     const voices = speechSynthesis.getVoices();
     if (voices.length === 0) {
-      ttsLog('No voices yet, waiting for onvoiceschanged...');
       let waited = false;
       speechSynthesis.onvoiceschanged = () => {
         if (waited) return;
@@ -580,7 +427,6 @@ function tryWebSpeech(options: {
 }
 
 export async function nativeStop(): Promise<void> {
-  // FIX #7: Add timeout to prevent nativeStop from hanging forever
   const stopWithTimeout = async () => {
     const plugin = await getPlugin();
     if (plugin) {
@@ -594,10 +440,7 @@ export async function nativeStop(): Promise<void> {
     ttsWarn('nativeStop timed out — forcing continue');
   }
 
-  // Also stop Web Speech API in case fallback was used
   if (typeof speechSynthesis !== 'undefined') {
     try { speechSynthesis.cancel(); } catch { /* ignore */ }
   }
-  // Stop cloud audio if playing
-  cloudStop();
 }

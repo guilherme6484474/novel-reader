@@ -4,22 +4,17 @@ import { ttsLog, ttsError } from "@/lib/tts-debug-log";
 import { toast } from "sonner";
 import { acquireWakeLock, releaseWakeLock, setMediaSessionHandlers, updateMediaSessionPlaybackState } from "@/lib/keep-awake";
 import { startForegroundService, stopForegroundService } from "@/lib/foreground-service";
-import { piperSpeak, piperStop, getPiperVoice, warmPiperVoice, initPiperAudio } from "@/lib/piper-tts";
 
 import { getTTSEngine } from "@/lib/native-tts";
 
 // Chunk sizes per engine
-const MAX_CHUNK_CLOUD = 4000; // Google Cloud TTS supports up to 5000 chars
+const MAX_CHUNK_NATIVE = 4000; // Native Android/iOS TTS handles long input well
 const MAX_CHUNK_WEBSPEECH = 200; // WebSpeech works best with short utterances
-const MAX_CHUNK_PIPER_INITIAL = 140; // Piper: start faster with a smaller first chunk
-const MAX_CHUNK_PIPER = 420; // Browser-safe chunk size for Piper
-const MAX_CHUNK_PIPER_NATIVE = 900; // Fewer chunk transitions when the screen is off on Android
 
 function getMaxChunkChars(): number {
   const engine = getTTSEngine();
   if (!isNative() && engine === 'webspeech') return MAX_CHUNK_WEBSPEECH;
-  if (engine === 'piper') return MAX_CHUNK_PIPER;
-  return MAX_CHUNK_CLOUD;
+  return MAX_CHUNK_NATIVE;
 }
 
 function splitIntoSentences(text: string, maxChunk = getMaxChunkChars()): string[] {
@@ -68,17 +63,7 @@ function splitIntoSentences(text: string, maxChunk = getMaxChunkChars()): string
 }
 
 function splitTextForPlayback(text: string): string[] {
-  if (getTTSEngine() !== 'piper') return splitIntoSentences(text);
-
-  const firstPass = splitIntoSentences(text, MAX_CHUNK_PIPER_INITIAL);
-  const firstChunk = firstPass[0];
-  if (!firstChunk) return [];
-
-  const remainingText = text.slice(firstChunk.length);
-  if (!remainingText.trim()) return [firstChunk];
-
-  const followUpChunkSize = isNative() ? MAX_CHUNK_PIPER_NATIVE : MAX_CHUNK_PIPER;
-  return [firstChunk, ...splitIntoSentences(remainingText, followUpChunkSize)];
+  return splitIntoSentences(text);
 }
 
 function buildWordMap(text: string): { word: string; start: number }[] {
