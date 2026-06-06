@@ -6,11 +6,9 @@ const corsHeaders = {
 };
 
 /**
- * Free Google Translate using the public endpoint.
- * Translates text in chunks to avoid URL length limits.
+ * Map human-readable language names to ISO codes (used by all providers).
  */
-async function googleTranslate(text: string, targetLang: string): Promise<string> {
-  // Map human-readable language names to Google Translate language codes
+function toLangCode(targetLang: string): string {
   const langMap: Record<string, string> = {
     'portuguese (brazilian)': 'pt',
     'portuguese': 'pt',
@@ -45,17 +43,15 @@ async function googleTranslate(text: string, targetLang: string): Promise<string
     'hebrew': 'he',
     'ukrainian': 'uk',
   };
+  return langMap[targetLang.toLowerCase()] || targetLang.slice(0, 2).toLowerCase();
+}
 
-  const tl = langMap[targetLang.toLowerCase()] || targetLang.slice(0, 2).toLowerCase();
-
-  // Split into paragraphs, translate in chunks
-  const MAX_CHUNK = 4500;
+function splitIntoChunks(text: string, maxChunk: number): string[] {
   const paragraphs = text.split('\n\n');
   const chunks: string[] = [];
   let current = '';
-
   for (const p of paragraphs) {
-    if ((current + '\n\n' + p).length > MAX_CHUNK && current) {
+    if ((current + '\n\n' + p).length > maxChunk && current) {
       chunks.push(current);
       current = p;
     } else {
@@ -63,34 +59,114 @@ async function googleTranslate(text: string, targetLang: string): Promise<string
     }
   }
   if (current) chunks.push(current);
+  return chunks;
+}
 
-  const translatedChunks: string[] = [];
+async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 15000): Promise<Response> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
 
-  for (const chunk of chunks) {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${tl}&dt=t&q=${encodeURIComponent(chunk)}`;
+// ----- Provider implementations (per chunk) -----
 
-    const resp = await fetch(url);
-    if (!resp.ok) {
-      const errText = await resp.text();
-      throw new Error(`Google Translate failed: ${resp.status} ${errText}`);
-    }
+async function googleTranslateChunk(chunk: string, tl: string): Promise<string> {
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${tl}&dt=t&q=${encodeURIComponent(chunk)}`;
+  const resp = await fetchWithTimeout(url, {}, 15000);
+  if (!resp.ok) throw new Error(`Google ${resp.status}`);
+  const data = await resp.json();
+  let out = '';
+  if (Array.isArray(data) && Array.isArray(data[0])) {
+    for (const seg of data[0]) if (Array.isArray(seg) && seg[0]) out += seg[0];
+  }
+  if (!out) throw new Error('Google empty');
+  return out;
+}
 
+// Lingva is an open-source Google Translate front-end. Multiple public instances.
+const LINGVA_INSTANCES = [
+  'https://lingva.ml',
+  'https://translate.plausibility.cloud',
+  'https://lingva.garudalinux.org',
+];
+async function lingvaTranslateChunk(chunk: string, tl: string): Promise<string> {
+  let lastErr: unknown;
+  for (const base of LINGVA_INSTANCES) {
+    try {
+      const url = `${base}/api/v1/auto/${encodeURIComponent(tl)}/${encodeURIComponent(chunk)}`;
+      const resp = await fetchWithTimeout(url, {}, 15000);
+      if (!resp.ok) throw new Error(`Lingva ${resp.status}`);
+      const data = await resp.json();
+      const out = data?.translation;
+      if (typeof out === 'string' && out.length > 0) return out;
+      throw new Error('Lingva empty');
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr ?? new Error('Lingva failed');
+}
+
+// MyMemory free endpoint: max ~500 chars per request, so we split smaller.
+async function myMemoryTranslateChunk(chunk: string, tl: string): Promise<string> {
+  const small = splitIntoChunks(chunk, 480);
+  const out: string[] = [];
+  for (const s of small) {
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(s)}&langpair=auto|${encodeURIComponent(tl)}`;
+    const resp = await fetchWithTimeout(url, {}, 15000);
+    if (!resp.ok) throw new Error(`MyMemory ${resp.status}`);
     const data = await resp.json();
-    // Response format: [[["translated text","original text",null,null,confidence],...]]
-    let translated = '';
-    if (Array.isArray(data) && Array.isArray(data[0])) {
-      for (const segment of data[0]) {
-        if (Array.isArray(segment) && segment[0]) {
-          translated += segment[0];
+    const t = data?.responseData?.translatedText;
+    if (typeof t !== 'string' || !t) throw new Error('MyMemory empty');
+    out.push(t);
+  }
+  return out.join('\n\n');
+}
+
+/**
+ * Translate one chunk trying providers in order, with one retry each.
+ * Throws only if every provider fails.
+ */
+async function translateChunkWithFallback(chunk: string, tl: string): Promise<{ text: string; provider: string }> {
+  const providers: Array<{ name: string; fn: (c: string, l: string) => Promise<string> }> = [
+    { name: 'google', fn: googleTranslateChunk },
+    { name: 'lingva', fn: lingvaTranslateChunk },
+    { name: 'mymemory', fn: myMemoryTranslateChunk },
+  ];
+  let lastErr: unknown;
+  for (const p of providers) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const text = await p.fn(chunk, tl);
+        if (attempt > 0 || p.name !== 'google') {
+          console.log(`Chunk translated via ${p.name}${attempt > 0 ? ` (retry ${attempt})` : ''}`);
         }
+        return { text, provider: p.name };
+      } catch (e) {
+        lastErr = e;
+        console.warn(`Provider ${p.name} attempt ${attempt + 1} failed:`, e instanceof Error ? e.message : e);
+        // small backoff
+        await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
       }
     }
-
-    if (!translated) throw new Error('Google Translate returned empty result');
-    translatedChunks.push(translated);
   }
+  throw lastErr ?? new Error('All translation providers failed');
+}
 
-  return translatedChunks.join('\n\n');
+/**
+ * Translate full text using the provider fallback chain, chunked.
+ */
+async function googleTranslate(text: string, targetLang: string): Promise<string> {
+  const tl = toLangCode(targetLang);
+  const chunks = splitIntoChunks(text, 4500);
+  const out: string[] = [];
+  for (const chunk of chunks) {
+    const { text: t } = await translateChunkWithFallback(chunk, tl);
+    out.push(t);
+  }
+  return out.join('\n\n');
 }
 
 /**
