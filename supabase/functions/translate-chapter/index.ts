@@ -75,8 +75,14 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs =
 // ----- Provider implementations (per chunk) -----
 
 async function googleTranslateChunk(chunk: string, tl: string): Promise<string> {
-  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${tl}&dt=t&q=${encodeURIComponent(chunk)}`;
-  const resp = await fetchWithTimeout(url, {}, 15000);
+  // Use POST to avoid URL-length limits (GET fails with 400 on long chunks)
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${tl}&dt=t`;
+  const body = `q=${encodeURIComponent(chunk)}`;
+  const resp = await fetchWithTimeout(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body,
+  }, 20000);
   if (!resp.ok) throw new Error(`Google ${resp.status}`);
   const data = await resp.json();
   let out = '';
@@ -89,16 +95,19 @@ async function googleTranslateChunk(chunk: string, tl: string): Promise<string> 
 
 // Lingva is an open-source Google Translate front-end. Multiple public instances.
 const LINGVA_INSTANCES = [
-  'https://lingva.ml',
+  'https://lingva.lunar.icu',
   'https://translate.plausibility.cloud',
   'https://lingva.garudalinux.org',
+  'https://lingva.ml',
 ];
 async function lingvaTranslateChunk(chunk: string, tl: string): Promise<string> {
   let lastErr: unknown;
   for (const base of LINGVA_INSTANCES) {
     try {
       const url = `${base}/api/v1/auto/${encodeURIComponent(tl)}/${encodeURIComponent(chunk)}`;
-      const resp = await fetchWithTimeout(url, {}, 15000);
+      const resp = await fetchWithTimeout(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
+      }, 15000);
       if (!resp.ok) throw new Error(`Lingva ${resp.status}`);
       const data = await resp.json();
       const out = data?.translation;
@@ -109,12 +118,14 @@ async function lingvaTranslateChunk(chunk: string, tl: string): Promise<string> 
   throw lastErr ?? new Error('Lingva failed');
 }
 
-// MyMemory free endpoint: max ~500 chars per request, so we split smaller.
+// MyMemory free endpoint: ~500 chars per request and requires explicit source lang
+// (langpair=auto|xx returns 414/400). We assume English as source — the vast majority
+// of scraped novels are English translations.
 async function myMemoryTranslateChunk(chunk: string, tl: string): Promise<string> {
-  const small = splitIntoChunks(chunk, 480);
+  const small = splitIntoChunks(chunk, 450);
   const out: string[] = [];
   for (const s of small) {
-    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(s)}&langpair=auto|${encodeURIComponent(tl)}`;
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(s)}&langpair=en|${encodeURIComponent(tl)}`;
     const resp = await fetchWithTimeout(url, {}, 15000);
     if (!resp.ok) throw new Error(`MyMemory ${resp.status}`);
     const data = await resp.json();
