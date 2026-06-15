@@ -534,16 +534,156 @@ export function useTTS() {
     speechSynthesis.speak(utterance);
   }, [clearWordTimer, updatePosition, startWordStepper, speakChunkNative]);
 
+  // ─── Edge TTS (experimental) chunk speaker ───
+  // Calls the supabase edge function to get MP3 and plays it via HTMLAudioElement.
+  // On any failure, automatically falls back to Web Speech / Native for the rest of the chapter.
+  const speakChunkEdge = useCallback(async (chunkIndex: number, gen: number) => {
+    if (!speakingRef.current || gen !== generationRef.current) return;
+    const chunks = chunksRef.current;
+    const offsets = chunkOffsetsRef.current;
+
+    if (chunkIndex >= chunks.length) {
+      speakingRef.current = false;
+      setIsSpeaking(false);
+      setIsPaused(false);
+      setProgress(100);
+      setActiveCharIndex(-1);
+      clearWordTimer();
+      updateMediaSessionPlaybackState('none');
+      void releaseWakeLock();
+      void stopForegroundService();
+      onEndCallbackRef.current?.();
+      return;
+    }
+
+    const chunkText = chunks[chunkIndex];
+    const globalOffset = offsets[chunkIndex];
+    currentChunkRef.current = chunkIndex;
+
+    updatePosition(globalOffset);
+
+    const selectedV = voices.find(v => v.name === selectedVoiceRef.current);
+    const voiceURI = selectedV?.voiceURI && /^[a-z]{2}-[A-Z]{2}-[A-Za-z]+Neural$/.test(selectedV.voiceURI)
+      ? selectedV.voiceURI
+      : 'pt-BR-FranciscaNeural';
+    const lang = selectedV?.lang || 'pt-BR';
+
+    const fallbackToWebSpeech = (reason: string) => {
+      if (gen !== generationRef.current) return;
+      ttsError(`[EdgeTTS] ${reason} — falling back to Web Speech`);
+      toast.warning('Edge TTS indisponível', {
+        description: 'Voltando para Web Speech automaticamente.',
+        duration: 4000,
+      });
+      if (!isNative()) speakChunkWeb(chunkIndex, gen);
+      else speakChunkNative(chunkIndex, gen);
+    };
+
+    try {
+      // Reuse prefetched URL when available
+      let urlPromise: Promise<string>;
+      if (edgePrefetchRef.current && edgePrefetchRef.current.chunkIndex === chunkIndex) {
+        urlPromise = edgePrefetchRef.current.url;
+        edgePrefetchRef.current = null;
+      } else {
+        urlPromise = fetchEdgeTtsAudio({
+          text: chunkText,
+          voice: voiceURI,
+          lang,
+          rate: rateRef.current,
+          pitch: pitchRef.current,
+        });
+      }
+
+      const url = await urlPromise;
+      if (gen !== generationRef.current) {
+        URL.revokeObjectURL(url);
+        return;
+      }
+
+      // Pre-fetch the NEXT chunk in parallel while this one plays
+      if (chunkIndex + 1 < chunks.length) {
+        const nextIdx = chunkIndex + 1;
+        edgePrefetchRef.current = {
+          chunkIndex: nextIdx,
+          url: fetchEdgeTtsAudio({
+            text: chunks[nextIdx],
+            voice: voiceURI,
+            lang,
+            rate: rateRef.current,
+            pitch: pitchRef.current,
+          }).catch(() => Promise.reject(new Error('prefetch failed'))),
+        };
+      }
+
+      // Revoke previous blob URL
+      if (edgeBlobUrlRef.current) {
+        try { URL.revokeObjectURL(edgeBlobUrlRef.current); } catch { /* ignore */ }
+      }
+      edgeBlobUrlRef.current = url;
+
+      let audio = edgeAudioRef.current;
+      if (!audio) {
+        audio = new Audio();
+        audio.preload = 'auto';
+        edgeAudioRef.current = audio;
+      }
+
+      audio.src = url;
+      audio.playbackRate = 1; // rate already baked into the SSML
+      audio.onended = null;
+      audio.onerror = null;
+
+      chunkStartTimeRef.current = performance.now();
+      startWordStepper(chunkText, globalOffset, rateRef.current);
+
+      const onEnded = () => {
+        if (gen !== generationRef.current) return;
+        clearWordTimer();
+        if (speakingRef.current && !pausedRef.current) {
+          void speakChunkEdge(chunkIndex + 1, gen);
+        }
+      };
+      const onAudioError = () => {
+        if (gen !== generationRef.current) return;
+        clearWordTimer();
+        fallbackToWebSpeech('audio playback error');
+      };
+
+      audio.onended = onEnded;
+      audio.onerror = onAudioError;
+
+      try {
+        await audio.play();
+        if (chunkIndex === 0) {
+          setDebugInfo(prev => prev + ' | Engine: edge-tts');
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        ttsError(`[EdgeTTS] audio.play() rejected: ${msg}`);
+        clearWordTimer();
+        fallbackToWebSpeech(msg);
+      }
+    } catch (e) {
+      if (gen !== generationRef.current) return;
+      const msg = e instanceof Error ? e.message : String(e);
+      clearWordTimer();
+      fallbackToWebSpeech(msg);
+    }
+  }, [clearWordTimer, updatePosition, startWordStepper, speakChunkWeb, speakChunkNative, voices]);
+
   // ─── Unified speak function ───
   // Routes to the correct speaker based on engine preference
   const speakChunk = useCallback((chunkIndex: number, gen: number) => {
     const engine = getTTSEngine();
-    if (!isNative() && engine === 'webspeech') {
+    if (engine === 'edge') {
+      void speakChunkEdge(chunkIndex, gen);
+    } else if (!isNative() && engine === 'webspeech') {
       speakChunkWeb(chunkIndex, gen);
     } else {
       speakChunkNative(chunkIndex, gen);
     }
-  }, [speakChunkNative, speakChunkWeb]);
+  }, [speakChunkNative, speakChunkWeb, speakChunkEdge]);
 
   const cancelCurrentSpeech = useCallback(async (resetUi: boolean) => {
     // Increment generation to invalidate all in-flight chunk callbacks
