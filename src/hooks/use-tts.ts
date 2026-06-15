@@ -491,10 +491,16 @@ export function useTTS() {
     updatePosition(globalOffset);
 
     const utterance = new SpeechSynthesisUtterance(chunkText);
+    const selectedV = voices.find(v => v.name === selectedVoiceRef.current);
+    const requestedLang = selectedV?.lang || (typeof navigator !== 'undefined' ? navigator.language : 'pt-BR');
+    utterance.lang = requestedLang;
     if (typeof speechSynthesis !== 'undefined') {
       const webVoices = speechSynthesis.getVoices();
       const voice = webVoices.find(v => v.name === selectedVoiceRef.current);
-      if (voice) utterance.voice = voice;
+      const langPrefix = requestedLang.split('-')[0].toLowerCase();
+      const compatibleVoice = voice || webVoices.find(v => v.lang.toLowerCase() === requestedLang.toLowerCase())
+        || webVoices.find(v => v.lang.toLowerCase().startsWith(langPrefix));
+      if (compatibleVoice) utterance.voice = compatibleVoice;
     }
     utterance.rate = rateRef.current;
     utterance.pitch = pitchRef.current;
