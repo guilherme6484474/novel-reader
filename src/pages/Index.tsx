@@ -619,13 +619,15 @@ const Index = () => {
     <div className="min-h-screen bg-background text-foreground transition-colors">
       {/* Header */}
       <header
-        className="sticky top-0 z-20 border-b border-border/60 bg-background/80 backdrop-blur-xl"
+        className="sticky top-0 z-20 border-b border-border/60 bg-background/75 backdrop-blur-xl relative"
       >
+        {/* Hair-thin gold rule under the header */}
+        <div className="absolute inset-x-0 bottom-0 gold-rule pointer-events-none" aria-hidden="true" />
         <div className="mx-auto max-w-3xl px-4 sm:px-6 py-3 sm:py-4">
           {/* Top bar */}
           <div className="flex items-center justify-between mb-3">
             <div
-              className="flex items-center gap-2.5 cursor-pointer"
+              className="flex items-center gap-3 cursor-pointer group select-none"
               onClick={() => {
                 tts.stop();
                 setChapter(null);
@@ -637,19 +639,31 @@ const Index = () => {
                 window.scrollTo({ top: 0, behavior: 'instant' });
               }}
             >
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
-                <BookOpen className="h-5 w-5 text-primary" />
+              <div className="relative flex h-10 w-10 items-center justify-center">
+                <div className="absolute inset-0 rounded-full bg-gradient-gold opacity-20 blur-md group-hover:opacity-40 transition-opacity" aria-hidden="true" />
+                <img
+                  src={logoMark}
+                  alt="Novel Reader"
+                  width={40}
+                  height={40}
+                  className="relative h-9 w-9 object-contain animate-logo-float drop-shadow-[0_0_8px_hsl(var(--primary)/0.35)]"
+                />
               </div>
-              <h1 className="text-base sm:text-lg font-bold tracking-tight" style={{ fontFamily: 'var(--font-heading)' }}>
-                Novel Reader
-              </h1>
+              <div className="flex flex-col -space-y-0.5 leading-none">
+                <h1 className="font-display text-lg sm:text-xl font-semibold tracking-tight">
+                  Novel <span className="text-gold-gradient italic">Reader</span>
+                </h1>
+                <span className="font-display italic text-[10px] sm:text-[11px] text-muted-foreground tracking-[0.2em] uppercase">
+                  Edição de luxo
+                </span>
+              </div>
             </div>
             <div className="flex items-center gap-0.5 -mr-2">
               {pwa.canInstall && (
                 <Button
                   variant="ghost" size="icon"
                   onClick={pwa.install}
-                  className="h-10 w-10 rounded-lg text-primary hover:text-primary"
+                  className="h-10 w-10 rounded-lg text-primary hover:text-primary-glow"
                   title="Instalar app"
                 >
                   <Download className="h-5 w-5" />
