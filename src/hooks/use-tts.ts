@@ -919,6 +919,9 @@ export function useTTS() {
     speakingRef.current = false;
     pausedRef.current = false;
     lastUiUpdateRef.current = { ts: 0, charIndex: -1 };
+    runtimeEngineRef.current = null;
+    failedEnginesRef.current = new Set();
+    fallbackNoticeShownRef.current = false;
 
     const stopPromise = nativeStop().catch(() => {});
 
@@ -978,6 +981,9 @@ export function useTTS() {
     // FIX #1: New generation for this speak session
     const gen = ++generationRef.current;
     lastUiUpdateRef.current = { ts: 0, charIndex: -1 };
+    runtimeEngineRef.current = getPreferredRuntimeEngine();
+    failedEnginesRef.current = new Set();
+    fallbackNoticeShownRef.current = false;
     speakingRef.current = true;
     pausedRef.current = false;
     setIsSpeaking(true);
