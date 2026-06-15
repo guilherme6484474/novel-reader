@@ -1170,7 +1170,7 @@ const Index = () => {
                     {novels.map((novel) => (
                       <div
                         key={novel.novel_url}
-                        className="flex items-center gap-4 p-4 rounded-2xl bg-card border border-border/60 hover:border-primary/40 hover:shadow-md transition-all cursor-pointer group"
+                        className="tilt-3d flex items-center gap-4 p-4 rounded-2xl bg-card border border-border/60 hover:border-primary/40 cursor-pointer group shadow-elegant"
                         onClick={() => handleHistoryItemClick(novel)}
                       >
                         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 group-hover:bg-primary/15 transition-colors">
