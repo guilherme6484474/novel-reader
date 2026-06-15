@@ -1037,7 +1037,7 @@ const Index = () => {
               {history.map((h) => (
                 <div
                   key={h.id}
-                  className="flex items-center gap-3 p-3 rounded-xl bg-background border border-border/40 active:border-primary/30 transition-colors cursor-pointer group"
+                  className="tilt-3d flex items-center gap-3 p-3 rounded-xl bg-card/70 border border-border/50 hover:border-primary/40 active:border-primary/30 cursor-pointer group shadow-elegant/30"
                   onClick={() => handleHistoryItemClick(h)}
                 >
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
