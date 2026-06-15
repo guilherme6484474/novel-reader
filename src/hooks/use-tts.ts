@@ -698,6 +698,19 @@ export function useTTS() {
     chunksRef.current = [];
     chunkOffsetsRef.current = [];
 
+    // Stop and release Edge TTS audio resources
+    if (edgeAudioRef.current) {
+      try { edgeAudioRef.current.pause(); edgeAudioRef.current.src = ''; } catch { /* ignore */ }
+    }
+    if (edgeBlobUrlRef.current) {
+      try { URL.revokeObjectURL(edgeBlobUrlRef.current); } catch { /* ignore */ }
+      edgeBlobUrlRef.current = null;
+    }
+    edgePrefetchRef.current = null;
+    if (typeof speechSynthesis !== 'undefined') {
+      try { speechSynthesis.cancel(); } catch { /* ignore */ }
+    }
+
     if (resetUi) {
       setIsSpeaking(false);
       setIsPaused(false);
@@ -748,27 +761,55 @@ export function useTTS() {
 
   // Improved pause — increment generation to kill in-flight async operations
   const pause = useCallback(() => {
-    // Increment generation FIRST to invalidate any in-flight chunk callbacks
-    generationRef.current++;
     pausedRef.current = true;
     speakingRef.current = false;
     setIsPaused(true);
     clearWordTimer();
     updateMediaSessionPlaybackState('paused');
+
+    // For Edge TTS we can pause the audio element without losing playback position
+    const engine = getTTSEngine();
+    if (engine === 'edge' && edgeAudioRef.current) {
+      try { edgeAudioRef.current.pause(); } catch { /* ignore */ }
+      return;
+    }
+
+    // For Native/WebSpeech we cancel — resume restarts the current chunk
+    generationRef.current++;
     void nativeStop();
+    if (typeof speechSynthesis !== 'undefined') {
+      try { speechSynthesis.cancel(); } catch { /* ignore */ }
+    }
   }, [clearWordTimer]);
 
   // Improved resume — new generation prevents stale callbacks from interfering
   const resume = useCallback(() => {
     if (chunksRef.current.length === 0) return;
-    const gen = ++generationRef.current;
     pausedRef.current = false;
     speakingRef.current = true;
     setIsPaused(false);
     setIsSpeaking(true);
     updateMediaSessionPlaybackState('playing');
+
+    const engine = getTTSEngine();
+    if (engine === 'edge' && edgeAudioRef.current && edgeAudioRef.current.src) {
+      // Resume from current position in the MP3 — restart word stepper too
+      chunkStartTimeRef.current = performance.now() - (edgeAudioRef.current.currentTime * 1000);
+      startWordStepper(
+        chunksRef.current[currentChunkRef.current] || '',
+        chunkOffsetsRef.current[currentChunkRef.current] || 0,
+        rateRef.current,
+      );
+      void edgeAudioRef.current.play().catch(() => {
+        const gen = ++generationRef.current;
+        speakChunk(currentChunkRef.current, gen);
+      });
+      return;
+    }
+
+    const gen = ++generationRef.current;
     speakChunk(currentChunkRef.current, gen);
-  }, [speakChunk]);
+  }, [speakChunk, startWordStepper]);
 
   const stop = useCallback(async () => {
     await cancelCurrentSpeech(true);
