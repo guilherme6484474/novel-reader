@@ -895,10 +895,11 @@ const Index = () => {
                     <Mic className="h-3 w-3" /> Motor de Voz
                   </p>
                   <Select
-                    value={getTTSEngine()}
+                    value={ttsEngine}
                     onValueChange={(v) => {
-                      setTTSEngine(v as TTSEnginePreference);
-                      // Force re-render so the Select shows the new value
+                      const next = v as TTSEnginePreference;
+                      setTTSEngine(next);
+                      setTtsEngineState(next);
                       toast.success("Motor de voz atualizado", {
                         description: "A mudança se aplica na próxima vez que você iniciar a leitura.",
                         duration: 3000,
@@ -917,9 +918,9 @@ const Index = () => {
                     </SelectContent>
                   </Select>
                   <p className="text-[10px] text-muted-foreground mt-2">
-                    {getTTSEngine() === 'edge'
+                    {ttsEngine === 'edge'
                       ? "⚠️ Edge TTS usa um endpoint não-oficial da Microsoft. Qualidade alta, gratuito, toca com tela apagada — mas pode parar de funcionar sem aviso. Há fallback automático para o navegador."
-                      : isNative() && getTTSEngine() === 'native'
+                      : isNative() && ttsEngine === 'native'
                       ? "📱 Motor de voz nativo do dispositivo. Toca com a tela apagada."
                       : "🌐 Web Speech API do navegador. Vozes dependem do sistema operacional."}
                   </p>
