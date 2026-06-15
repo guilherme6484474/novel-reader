@@ -189,6 +189,7 @@ const Index = () => {
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [showTrash, setShowTrash] = useState(false);
+  const [ttsEngine, setTtsEngineState] = useState<TTSEnginePreference>(() => getTTSEngine());
   const [trash, setTrash] = useState<HistoryEntry[]>([]);
   const pendingScrollRestoreRef = useRef<{ pos: number; pct: number } | null>(null);
   const restoredScrollRef = useRef(false);
