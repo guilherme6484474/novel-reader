@@ -151,7 +151,7 @@ export function useTTS() {
   const runtimeEngineRef = useRef<RuntimeTTSEngine | null>(null);
   const fallbackNoticeShownRef = useRef(false);
   const failedEnginesRef = useRef<Set<RuntimeTTSEngine>>(new Set());
-  const fallbackChunkRef = useRef<((failedEngine: RuntimeTTSEngine, chunkIndex: number, gen: number, reason: string) => void) | null>(null);
+  const fallbackChunkRef = useRef<((failedEngine: RuntimeTTSEngine, chunkIndex: number, gen: number, reason: string) => boolean) | null>(null);
 
   // FIX #1: Generation counter to prevent race conditions
   const generationRef = useRef(0);
