@@ -20,14 +20,17 @@ const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 // we list the languages this app cares about. The `voiceURI` carries the
 // `kokoro:` prefix so the engine router can detect Kokoro voices.
 export const KOKORO_VOICES: TTSVoice[] = [
-  // Português (Brasil) — único trio oficial no checkpoint v1.0
-  { name: '🧠 Kokoro: Dora (pt-BR, feminina)', lang: 'pt-BR', localService: true, voiceURI: 'kokoro:pf_dora' },
-  { name: '🧠 Kokoro: Alex (pt-BR, masculina)', lang: 'pt-BR', localService: true, voiceURI: 'kokoro:pm_alex' },
-  { name: '🧠 Kokoro: Santa (pt-BR, masculina)', lang: 'pt-BR', localService: true, voiceURI: 'kokoro:pm_santa' },
-  // Inglês (US/UK) — alta qualidade, úteis como fallback de idioma
+  // NOTA: kokoro-js@1.2.1 só suporta phonemização en-us/en-gb.
+  // As vozes pt-BR do checkpoint (pf_dora, pm_alex, pm_santa) existem no
+  // modelo, mas a lib rejeita na validação e o fonemizador não conhece
+  // português — o áudio sairia ilegível. Mantemos só as vozes funcionais.
+  // Inglês (US) — qualidade A/A-
   { name: '🧠 Kokoro: Heart (en-US, feminina)', lang: 'en-US', localService: true, voiceURI: 'kokoro:af_heart' },
   { name: '🧠 Kokoro: Bella (en-US, feminina)', lang: 'en-US', localService: true, voiceURI: 'kokoro:af_bella' },
+  { name: '🧠 Kokoro: Nicole (en-US, feminina)', lang: 'en-US', localService: true, voiceURI: 'kokoro:af_nicole' },
   { name: '🧠 Kokoro: Michael (en-US, masculina)', lang: 'en-US', localService: true, voiceURI: 'kokoro:am_michael' },
+  { name: '🧠 Kokoro: Fenrir (en-US, masculina)', lang: 'en-US', localService: true, voiceURI: 'kokoro:am_fenrir' },
+  // Inglês (UK)
   { name: '🧠 Kokoro: Emma (en-GB, feminina)', lang: 'en-GB', localService: true, voiceURI: 'kokoro:bf_emma' },
   { name: '🧠 Kokoro: George (en-GB, masculina)', lang: 'en-GB', localService: true, voiceURI: 'kokoro:bm_george' },
 ];
@@ -37,7 +40,7 @@ export function isKokoroVoice(voiceURI: string | undefined): boolean {
 }
 
 export function kokoroVoiceId(voiceURI: string | undefined): string {
-  if (!voiceURI) return 'pf_dora';
+  if (!voiceURI) return 'af_heart';
   return voiceURI.startsWith('kokoro:') ? voiceURI.slice('kokoro:'.length) : voiceURI;
 }
 

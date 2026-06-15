@@ -930,7 +930,7 @@ const Index = () => {
                     {ttsEngine === 'edge'
                       ? "⚠️ Edge TTS usa um endpoint não-oficial da Microsoft. Qualidade alta, gratuito, toca com tela apagada — mas pode parar de funcionar sem aviso. Há fallback automático para o navegador."
                       : ttsEngine === 'kokoro'
-                      ? "🧠 Kokoro TTS roda 100% no seu dispositivo via WebAssembly. Primeira vez baixa ~85MB e fica em cache; depois é instantâneo e funciona offline. Vozes pt-BR: Dora, Alex, Santa."
+                      ? "🧠 Kokoro TTS roda 100% no seu dispositivo via WebAssembly. Primeira vez baixa ~85MB e fica em cache; depois é instantâneo e funciona offline. ⚠️ A lib atual (kokoro-js v1.2.1) só fonemiza inglês — use Edge TTS para pt-BR e Kokoro para textos em inglês."
                       : isNative() && ttsEngine === 'native'
                       ? "📱 Motor de voz nativo do dispositivo. Toca com a tela apagada."
                       : "🌐 Web Speech API do navegador. Vozes dependem do sistema operacional."}

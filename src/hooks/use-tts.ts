@@ -704,7 +704,7 @@ export function useTTS() {
     updatePosition(globalOffset);
 
     const selectedV = voices.find(v => v.name === selectedVoiceRef.current);
-    const voiceId = isKokoroVoice(selectedV?.voiceURI) ? kokoroVoiceId(selectedV!.voiceURI) : 'pf_dora';
+    const voiceId = isKokoroVoice(selectedV?.voiceURI) ? kokoroVoiceId(selectedV!.voiceURI) : 'af_heart';
 
     const fallbackEngine = (reason: string) => {
       if (gen !== generationRef.current) return;
@@ -747,7 +747,7 @@ export function useTTS() {
       if (chunkIndex + 1 < chunks.length) {
         const nextIdx = chunkIndex + 1;
         const nextSelectedV = voices.find(v => v.name === selectedVoiceRef.current);
-        const nextVoiceId = isKokoroVoice(nextSelectedV?.voiceURI) ? kokoroVoiceId(nextSelectedV!.voiceURI) : 'pf_dora';
+        const nextVoiceId = isKokoroVoice(nextSelectedV?.voiceURI) ? kokoroVoiceId(nextSelectedV!.voiceURI) : 'af_heart';
         edgePrefetchRef.current = {
           chunkIndex: nextIdx,
           url: fetchKokoroTtsAudio({ text: chunks[nextIdx], voice: nextVoiceId })
