@@ -150,6 +150,8 @@ export function useTTS() {
   // fallback engine for the remaining chunks instead of retrying the broken one.
   const runtimeEngineRef = useRef<RuntimeTTSEngine | null>(null);
   const fallbackNoticeShownRef = useRef(false);
+  const failedEnginesRef = useRef<Set<RuntimeTTSEngine>>(new Set());
+  const fallbackChunkRef = useRef<((failedEngine: RuntimeTTSEngine, chunkIndex: number, gen: number, reason: string) => void) | null>(null);
 
   // FIX #1: Generation counter to prevent race conditions
   const generationRef = useRef(0);
@@ -422,17 +424,18 @@ export function useTTS() {
         }
       }
 
-      // FIX #5: Show user-facing error instead of silent failure
-      toast.error("Erro no motor de voz", {
-        description: message.length > 100 ? message.slice(0, 100) + '…' : message,
-        duration: 5000,
-      });
-
       clearWordTimer();
-      speakingRef.current = false;
-      setIsSpeaking(false);
-      setIsPaused(false);
-      setActiveCharIndex(-1);
+      const fallbackStarted = fallbackChunkRef.current?.('native', chunkIndex, gen, message);
+      if (!fallbackStarted) {
+        toast.error("Erro no motor de voz", {
+          description: message.length > 100 ? message.slice(0, 100) + '…' : message,
+          duration: 5000,
+        });
+        speakingRef.current = false;
+        setIsSpeaking(false);
+        setIsPaused(false);
+        setActiveCharIndex(-1);
+      }
     }
   }, [clearWordTimer, updatePosition, startWordStepper, voices]);
 
@@ -531,14 +534,19 @@ export function useTTS() {
         return;
       }
 
-      // Retry failed — fallback to Cloud TTS for remaining chunks
-      ttsLog(`WebSpeech failed after retry, falling back to Cloud TTS`);
-      toast.info("Web Speech falhou no celular, usando Cloud TTS", {
-        description: "O motor de voz local não é estável neste dispositivo.",
-        duration: 4000,
-      });
+      ttsLog(`WebSpeech failed after retry, switching engine`);
       speechSynthesis.cancel();
-      speakChunkNative(chunkIndex, gen);
+      const fallbackStarted = fallbackChunkRef.current?.('webspeech', chunkIndex, gen, errorMsg);
+      if (!fallbackStarted) {
+        toast.error("Web Speech falhou", {
+          description: "Nenhum outro motor de voz conseguiu iniciar neste dispositivo.",
+          duration: 5000,
+        });
+        speakingRef.current = false;
+        setIsSpeaking(false);
+        setIsPaused(false);
+        setActiveCharIndex(-1);
+      }
     };
 
     if (typeof speechSynthesis === 'undefined') return;
