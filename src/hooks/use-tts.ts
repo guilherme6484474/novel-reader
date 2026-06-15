@@ -15,6 +15,8 @@ const MAX_CHUNK_WEBSPEECH = 200; // WebSpeech works best with short utterances
 const MAX_CHUNK_EDGE = 1500; // Edge TTS: keep MP3 size reasonable for fast first-play
 const MAX_CHUNK_KOKORO = 500; // Kokoro runs on CPU — keep chunks short so first audio arrives quickly
 
+type RuntimeTTSEngine = 'webspeech' | 'native' | 'edge' | 'kokoro';
+
 function getMaxChunkChars(): number {
   const engine = getTTSEngine();
   if (engine === 'edge') return MAX_CHUNK_EDGE;
@@ -143,6 +145,11 @@ export function useTTS() {
   const edgeAudioRef = useRef<HTMLAudioElement | null>(null);
   const edgeBlobUrlRef = useRef<string | null>(null);
   const edgePrefetchRef = useRef<{ chunkIndex: number; url: Promise<string> } | null>(null);
+
+  // If a selected/cloud/local engine fails during a reading session, keep the
+  // fallback engine for the remaining chunks instead of retrying the broken one.
+  const runtimeEngineRef = useRef<RuntimeTTSEngine | null>(null);
+  const fallbackNoticeShownRef = useRef(false);
 
   // FIX #1: Generation counter to prevent race conditions
   const generationRef = useRef(0);
