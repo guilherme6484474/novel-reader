@@ -676,18 +676,148 @@ export function useTTS() {
     }
   }, [clearWordTimer, updatePosition, startWordStepper, speakChunkWeb, speakChunkNative, voices]);
 
+  // ─── Kokoro TTS chunk speaker ───
+  // Mirrors speakChunkEdge but uses the in-browser Kokoro pipeline. Shares
+  // edgeAudioRef/edgeBlobUrlRef/edgePrefetchRef — only one engine plays at a time.
+  const speakChunkKokoro = useCallback(async (chunkIndex: number, gen: number) => {
+    if (!speakingRef.current || gen !== generationRef.current) return;
+    const chunks = chunksRef.current;
+    const offsets = chunkOffsetsRef.current;
+
+    if (chunkIndex >= chunks.length) {
+      speakingRef.current = false;
+      setIsSpeaking(false);
+      setIsPaused(false);
+      setProgress(100);
+      setActiveCharIndex(-1);
+      clearWordTimer();
+      updateMediaSessionPlaybackState('none');
+      void releaseWakeLock();
+      void stopForegroundService();
+      onEndCallbackRef.current?.();
+      return;
+    }
+
+    const chunkText = chunks[chunkIndex];
+    const globalOffset = offsets[chunkIndex];
+    currentChunkRef.current = chunkIndex;
+    updatePosition(globalOffset);
+
+    const selectedV = voices.find(v => v.name === selectedVoiceRef.current);
+    const voiceId = isKokoroVoice(selectedV?.voiceURI) ? kokoroVoiceId(selectedV!.voiceURI) : 'pf_dora';
+
+    const fallbackEngine = (reason: string) => {
+      if (gen !== generationRef.current) return;
+      ttsError(`[KokoroTTS] ${reason} — falling back`);
+      toast.warning('Kokoro TTS indisponível', {
+        description: 'Voltando para o motor padrão automaticamente.',
+        duration: 4000,
+      });
+      if (!isNative()) speakChunkWeb(chunkIndex, gen);
+      else speakChunkNative(chunkIndex, gen);
+    };
+
+    // First-load notice — Kokoro downloads ~85MB on the first run.
+    if (chunkIndex === 0 && !isKokoroLoaded()) {
+      toast.info('Carregando Kokoro TTS…', {
+        description: 'Primeira execução baixa ~85MB. Próximas vezes inicia instantaneamente.',
+        duration: 6000,
+      });
+      onKokoroLoadProgress((pct) => {
+        setDebugInfo(prev => prev.replace(/ \| Kokoro: \d+%$/, '') + ` | Kokoro: ${Math.round(pct)}%`);
+      });
+    }
+
+    try {
+      let urlPromise: Promise<string>;
+      if (edgePrefetchRef.current && edgePrefetchRef.current.chunkIndex === chunkIndex) {
+        urlPromise = edgePrefetchRef.current.url;
+        edgePrefetchRef.current = null;
+      } else {
+        urlPromise = fetchKokoroTtsAudio({ text: chunkText, voice: voiceId });
+      }
+
+      const url = await urlPromise;
+      if (gen !== generationRef.current) {
+        URL.revokeObjectURL(url);
+        return;
+      }
+
+      // Pre-fetch the NEXT chunk in parallel
+      if (chunkIndex + 1 < chunks.length) {
+        const nextIdx = chunkIndex + 1;
+        const nextSelectedV = voices.find(v => v.name === selectedVoiceRef.current);
+        const nextVoiceId = isKokoroVoice(nextSelectedV?.voiceURI) ? kokoroVoiceId(nextSelectedV!.voiceURI) : 'pf_dora';
+        edgePrefetchRef.current = {
+          chunkIndex: nextIdx,
+          url: fetchKokoroTtsAudio({ text: chunks[nextIdx], voice: nextVoiceId })
+            .catch(() => Promise.reject(new Error('prefetch failed'))),
+        };
+      }
+
+      if (edgeBlobUrlRef.current) {
+        try { URL.revokeObjectURL(edgeBlobUrlRef.current); } catch { /* ignore */ }
+      }
+      edgeBlobUrlRef.current = url;
+
+      let audio = edgeAudioRef.current;
+      if (!audio) {
+        audio = new Audio();
+        audio.preload = 'auto';
+        edgeAudioRef.current = audio;
+      }
+      audio.src = url;
+      audio.playbackRate = rateRef.current; // Kokoro audio is at natural speed; let HTMLAudio scale
+      audio.onended = null;
+      audio.onerror = null;
+
+      chunkStartTimeRef.current = performance.now();
+      startWordStepper(chunkText, globalOffset, rateRef.current);
+
+      audio.onended = () => {
+        if (gen !== generationRef.current) return;
+        clearWordTimer();
+        if (speakingRef.current && !pausedRef.current) {
+          void speakChunkKokoro(chunkIndex + 1, gen);
+        }
+      };
+      audio.onerror = () => {
+        if (gen !== generationRef.current) return;
+        clearWordTimer();
+        fallbackEngine('audio playback error');
+      };
+
+      try {
+        await audio.play();
+        if (chunkIndex === 0) setDebugInfo(prev => prev + ' | Engine: kokoro-tts');
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        ttsError(`[KokoroTTS] audio.play() rejected: ${msg}`);
+        clearWordTimer();
+        fallbackEngine(msg);
+      }
+    } catch (e) {
+      if (gen !== generationRef.current) return;
+      const msg = e instanceof Error ? e.message : String(e);
+      clearWordTimer();
+      fallbackEngine(msg);
+    }
+  }, [clearWordTimer, updatePosition, startWordStepper, speakChunkWeb, speakChunkNative, voices]);
+
   // ─── Unified speak function ───
   // Routes to the correct speaker based on engine preference
   const speakChunk = useCallback((chunkIndex: number, gen: number) => {
     const engine = getTTSEngine();
     if (engine === 'edge') {
       void speakChunkEdge(chunkIndex, gen);
+    } else if (engine === 'kokoro') {
+      void speakChunkKokoro(chunkIndex, gen);
     } else if (!isNative() && engine === 'webspeech') {
       speakChunkWeb(chunkIndex, gen);
     } else {
       speakChunkNative(chunkIndex, gen);
     }
-  }, [speakChunkNative, speakChunkWeb, speakChunkEdge]);
+  }, [speakChunkNative, speakChunkWeb, speakChunkEdge, speakChunkKokoro]);
 
   const cancelCurrentSpeech = useCallback(async (resetUi: boolean) => {
     // Increment generation to invalidate all in-flight chunk callbacks
