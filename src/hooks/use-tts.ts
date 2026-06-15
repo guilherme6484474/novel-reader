@@ -854,19 +854,64 @@ export function useTTS() {
   }, [clearWordTimer, updatePosition, startWordStepper, speakChunkWeb, speakChunkNative, voices]);
 
   // ─── Unified speak function ───
-  // Routes to the correct speaker based on engine preference
-  const speakChunk = useCallback((chunkIndex: number, gen: number) => {
-    const engine = getTTSEngine();
+  // Routes to the correct speaker and switches engines when one fails.
+  const runChunkWithEngine = useCallback((engine: RuntimeTTSEngine, chunkIndex: number, gen: number) => {
     if (engine === 'edge') {
       void speakChunkEdge(chunkIndex, gen);
     } else if (engine === 'kokoro') {
       void speakChunkKokoro(chunkIndex, gen);
-    } else if (!isNative() && engine === 'webspeech') {
+    } else if (engine === 'webspeech') {
       speakChunkWeb(chunkIndex, gen);
     } else {
-      speakChunkNative(chunkIndex, gen);
+      void speakChunkNative(chunkIndex, gen);
     }
   }, [speakChunkNative, speakChunkWeb, speakChunkEdge, speakChunkKokoro]);
+
+  const fallbackChunk = useCallback((failedEngine: RuntimeTTSEngine, chunkIndex: number, gen: number, reason: string): boolean => {
+    if (gen !== generationRef.current || !speakingRef.current) return false;
+    failedEnginesRef.current.add(failedEngine);
+    edgePrefetchRef.current = null;
+
+    const preferred = runtimeEngineRef.current || getPreferredRuntimeEngine();
+    const nextEngine = chooseRuntimeEngine(preferred, failedEnginesRef.current);
+    if (!nextEngine) return false;
+
+    runtimeEngineRef.current = nextEngine;
+    setDebugInfo(prev => `${prev} | Fallback: ${runtimeEngineLabel(failedEngine)} → ${runtimeEngineLabel(nextEngine)}`);
+    if (!fallbackNoticeShownRef.current) {
+      fallbackNoticeShownRef.current = true;
+      toast.warning(`${runtimeEngineLabel(failedEngine)} indisponível`, {
+        description: `Tentando ${runtimeEngineLabel(nextEngine)} automaticamente.`,
+        duration: 4000,
+      });
+    }
+    ttsLog(`[TTS] fallback ${failedEngine} -> ${nextEngine}: ${reason}`);
+    runChunkWithEngine(nextEngine, chunkIndex, gen);
+    return true;
+  }, [runChunkWithEngine]);
+
+  useEffect(() => {
+    fallbackChunkRef.current = fallbackChunk;
+    return () => { fallbackChunkRef.current = null; };
+  }, [fallbackChunk]);
+
+  const speakChunk = useCallback((chunkIndex: number, gen: number) => {
+    const preferred = runtimeEngineRef.current || getPreferredRuntimeEngine();
+    const engine = chooseRuntimeEngine(preferred, failedEnginesRef.current);
+    if (!engine) {
+      speakingRef.current = false;
+      setIsSpeaking(false);
+      setIsPaused(false);
+      setActiveCharIndex(-1);
+      toast.error('Nenhum motor de voz disponível', {
+        description: 'Teste outro motor nas configurações de voz do app ou instale uma voz no sistema.',
+        duration: 6000,
+      });
+      return;
+    }
+    runtimeEngineRef.current = engine;
+    runChunkWithEngine(engine, chunkIndex, gen);
+  }, [runChunkWithEngine]);
 
   const cancelCurrentSpeech = useCallback(async (resetUi: boolean) => {
     // Increment generation to invalidate all in-flight chunk callbacks
