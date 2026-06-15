@@ -893,10 +893,37 @@ const Index = () => {
                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1.5">
                     <Mic className="h-3 w-3" /> Motor de Voz
                   </p>
-                  <p className="text-[10px] text-muted-foreground">
-                    {isNative()
-                      ? "📱 Usando o motor de voz nativo do dispositivo. Toca com a tela apagada."
-                      : "🌐 Usando a Web Speech API do navegador. Vozes dependem do sistema operacional."}
+                  <Select
+                    value={getTTSEngine()}
+                    onValueChange={(v) => {
+                      setTTSEngine(v as TTSEnginePreference);
+                      // Force re-render so the Select shows the new value
+                      toast.success("Motor de voz atualizado", {
+                        description: "A mudança se aplica na próxima vez que você iniciar a leitura.",
+                        duration: 3000,
+                      });
+                    }}
+                  >
+                    <SelectTrigger className="h-9 rounded-lg text-xs border-border/60 mt-1">
+                      <SelectValue placeholder="Escolha o motor" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {isNative() && (
+                        <SelectItem value="native">📱 Nativo do Android (toca com tela apagada)</SelectItem>
+                      )}
+                      <SelectItem value="webspeech">🌐 Navegador (Web Speech API)</SelectItem>
+                      <SelectItem value="edge">☁️ Edge TTS (experimental, alta qualidade)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-muted-foreground mt-2">
+                    {getTTSEngine() === 'edge'
+                      ? "⚠️ Edge TTS usa um endpoint não-oficial da Microsoft. Qualidade alta, gratuito, toca com tela apagada — mas pode parar de funcionar sem aviso. Há fallback automático para o navegador."
+                      : isNative() && getTTSEngine() === 'native'
+                      ? "📱 Motor de voz nativo do dispositivo. Toca com a tela apagada."
+                      : "🌐 Web Speech API do navegador. Vozes dependem do sistema operacional."}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    Após escolher o motor, selecione uma voz compatível acima (vozes ☁️ Edge funcionam apenas com o motor Edge TTS).
                   </p>
                 </div>
 
