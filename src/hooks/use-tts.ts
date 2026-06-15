@@ -112,6 +112,30 @@ function normalizeVoices(rawVoices: TTSVoice[]): TTSVoice[] {
     .filter(v => v.name.trim().length > 0);
 }
 
+function getPreferredRuntimeEngine(): RuntimeTTSEngine {
+  const engine = getTTSEngine();
+  if (engine === 'native' || engine === 'edge' || engine === 'kokoro' || engine === 'webspeech') return engine;
+  return isNative() ? 'native' : 'webspeech';
+}
+
+function getRuntimeCandidates(preferred: RuntimeTTSEngine): RuntimeTTSEngine[] {
+  const platformDefaults: RuntimeTTSEngine[] = isNative()
+    ? ['native', 'webspeech', 'edge', 'kokoro']
+    : ['webspeech', 'edge', 'kokoro', 'native'];
+  return [preferred, ...platformDefaults.filter(engine => engine !== preferred)];
+}
+
+function chooseRuntimeEngine(preferred: RuntimeTTSEngine, failed: Set<RuntimeTTSEngine>): RuntimeTTSEngine | null {
+  return getRuntimeCandidates(preferred).find(engine => !failed.has(engine)) || null;
+}
+
+function runtimeEngineLabel(engine: RuntimeTTSEngine): string {
+  if (engine === 'edge') return 'Edge TTS';
+  if (engine === 'kokoro') return 'Kokoro TTS';
+  if (engine === 'native') return 'motor nativo';
+  return 'Web Speech';
+}
+
 export function useTTS() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
