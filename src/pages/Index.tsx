@@ -21,12 +21,11 @@ import { toast } from "sonner";
 import {
   BookOpen, ChevronLeft, ChevronRight, Globe, Loader2,
   Pause, Play, Square, Volume2, Settings2, Search,
-  Moon, Sun, LogIn, LogOut, History, X, Trash2, Minus, Plus, Type,
+  LogIn, LogOut, History, X, Trash2, Minus, Plus, Type,
   RefreshCw, Download, BarChart3, Mic, Undo2, ArchiveRestore,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
-import { useTheme } from "next-themes";
 import { useNavigate } from "react-router-dom";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import logoMark from "@/assets/logo-novel-reader.png";
