@@ -28,6 +28,8 @@ import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
 import { useTheme } from "next-themes";
 import { useNavigate } from "react-router-dom";
+import { ThemeSwitcher } from "@/components/ThemeSwitcher";
+import logoMark from "@/assets/logo-novel-reader.png";
 import { TTSDiagnosticsPanel } from "@/components/TTSDiagnostics";
 
 const LANGUAGES = [
