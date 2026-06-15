@@ -195,8 +195,9 @@ export function useTTS() {
       return mapped;
     };
 
-    // Always append Edge TTS voices so the user can pick them once the engine is set to "edge".
-    const withEdgeVoices = (list: TTSVoice[]): TTSVoice[] => [...list, ...EDGE_TTS_VOICES];
+    // Always append Edge TTS + Kokoro voices so the user can pick them once the
+    // corresponding engine is selected. The engine router decides which one is used.
+    const withEdgeVoices = (list: TTSVoice[]): TTSVoice[] => [...list, ...EDGE_TTS_VOICES, ...KOKORO_VOICES];
 
     const loadNativeVoices = async () => {
       applyVoices(withEdgeVoices(SYSTEM_DEFAULT_VOICES));
