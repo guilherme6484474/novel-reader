@@ -7,15 +7,18 @@ import { startForegroundService, stopForegroundService } from "@/lib/foreground-
 
 import { getTTSEngine } from "@/lib/native-tts";
 import { EDGE_TTS_VOICES, fetchEdgeTtsAudio } from "@/lib/edge-tts";
+import { KOKORO_VOICES, fetchKokoroTtsAudio, isKokoroVoice, kokoroVoiceId, onKokoroLoadProgress, isKokoroLoaded } from "@/lib/kokoro-tts";
 
 // Chunk sizes per engine
 const MAX_CHUNK_NATIVE = 4000; // Native Android/iOS TTS handles long input well
 const MAX_CHUNK_WEBSPEECH = 200; // WebSpeech works best with short utterances
 const MAX_CHUNK_EDGE = 1500; // Edge TTS: keep MP3 size reasonable for fast first-play
+const MAX_CHUNK_KOKORO = 500; // Kokoro runs on CPU — keep chunks short so first audio arrives quickly
 
 function getMaxChunkChars(): number {
   const engine = getTTSEngine();
   if (engine === 'edge') return MAX_CHUNK_EDGE;
+  if (engine === 'kokoro') return MAX_CHUNK_KOKORO;
   if (!isNative() && engine === 'webspeech') return MAX_CHUNK_WEBSPEECH;
   return MAX_CHUNK_NATIVE;
 }
