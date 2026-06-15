@@ -136,6 +136,11 @@ export function useTTS() {
   const installPromptShownRef = useRef(false);
   const lastUiUpdateRef = useRef({ ts: 0, charIndex: -1 });
 
+  // Edge TTS playback: a single shared HTMLAudioElement and the current blob URL.
+  const edgeAudioRef = useRef<HTMLAudioElement | null>(null);
+  const edgeBlobUrlRef = useRef<string | null>(null);
+  const edgePrefetchRef = useRef<{ chunkIndex: number; url: Promise<string> } | null>(null);
+
   // FIX #1: Generation counter to prevent race conditions
   const generationRef = useRef(0);
 
