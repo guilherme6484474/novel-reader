@@ -15,6 +15,8 @@ const MAX_CHUNK_WEBSPEECH = 200; // WebSpeech works best with short utterances
 const MAX_CHUNK_EDGE = 1500; // Edge TTS: keep MP3 size reasonable for fast first-play
 const MAX_CHUNK_KOKORO = 500; // Kokoro runs on CPU — keep chunks short so first audio arrives quickly
 
+type RuntimeTTSEngine = 'webspeech' | 'native' | 'edge' | 'kokoro';
+
 function getMaxChunkChars(): number {
   const engine = getTTSEngine();
   if (engine === 'edge') return MAX_CHUNK_EDGE;
@@ -110,6 +112,30 @@ function normalizeVoices(rawVoices: TTSVoice[]): TTSVoice[] {
     .filter(v => v.name.trim().length > 0);
 }
 
+function getPreferredRuntimeEngine(): RuntimeTTSEngine {
+  const engine = getTTSEngine();
+  if (engine === 'native' || engine === 'edge' || engine === 'kokoro' || engine === 'webspeech') return engine;
+  return isNative() ? 'native' : 'webspeech';
+}
+
+function getRuntimeCandidates(preferred: RuntimeTTSEngine): RuntimeTTSEngine[] {
+  const platformDefaults: RuntimeTTSEngine[] = isNative()
+    ? ['native', 'webspeech', 'edge', 'kokoro']
+    : ['webspeech', 'edge', 'kokoro', 'native'];
+  return [preferred, ...platformDefaults.filter(engine => engine !== preferred)];
+}
+
+function chooseRuntimeEngine(preferred: RuntimeTTSEngine, failed: Set<RuntimeTTSEngine>): RuntimeTTSEngine | null {
+  return getRuntimeCandidates(preferred).find(engine => !failed.has(engine)) || null;
+}
+
+function runtimeEngineLabel(engine: RuntimeTTSEngine): string {
+  if (engine === 'edge') return 'Edge TTS';
+  if (engine === 'kokoro') return 'Kokoro TTS';
+  if (engine === 'native') return 'motor nativo';
+  return 'Web Speech';
+}
+
 export function useTTS() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -143,6 +169,13 @@ export function useTTS() {
   const edgeAudioRef = useRef<HTMLAudioElement | null>(null);
   const edgeBlobUrlRef = useRef<string | null>(null);
   const edgePrefetchRef = useRef<{ chunkIndex: number; url: Promise<string> } | null>(null);
+
+  // If a selected/cloud/local engine fails during a reading session, keep the
+  // fallback engine for the remaining chunks instead of retrying the broken one.
+  const runtimeEngineRef = useRef<RuntimeTTSEngine | null>(null);
+  const fallbackNoticeShownRef = useRef(false);
+  const failedEnginesRef = useRef<Set<RuntimeTTSEngine>>(new Set());
+  const fallbackChunkRef = useRef<((failedEngine: RuntimeTTSEngine, chunkIndex: number, gen: number, reason: string) => boolean) | null>(null);
 
   // FIX #1: Generation counter to prevent race conditions
   const generationRef = useRef(0);
@@ -415,17 +448,18 @@ export function useTTS() {
         }
       }
 
-      // FIX #5: Show user-facing error instead of silent failure
-      toast.error("Erro no motor de voz", {
-        description: message.length > 100 ? message.slice(0, 100) + '…' : message,
-        duration: 5000,
-      });
-
       clearWordTimer();
-      speakingRef.current = false;
-      setIsSpeaking(false);
-      setIsPaused(false);
-      setActiveCharIndex(-1);
+      const fallbackStarted = fallbackChunkRef.current?.('native', chunkIndex, gen, message);
+      if (!fallbackStarted) {
+        toast.error("Erro no motor de voz", {
+          description: message.length > 100 ? message.slice(0, 100) + '…' : message,
+          duration: 5000,
+        });
+        speakingRef.current = false;
+        setIsSpeaking(false);
+        setIsPaused(false);
+        setActiveCharIndex(-1);
+      }
     }
   }, [clearWordTimer, updatePosition, startWordStepper, voices]);
 
@@ -457,10 +491,16 @@ export function useTTS() {
     updatePosition(globalOffset);
 
     const utterance = new SpeechSynthesisUtterance(chunkText);
+    const selectedV = voices.find(v => v.name === selectedVoiceRef.current);
+    const requestedLang = selectedV?.lang || (typeof navigator !== 'undefined' ? navigator.language : 'pt-BR');
+    utterance.lang = requestedLang;
     if (typeof speechSynthesis !== 'undefined') {
       const webVoices = speechSynthesis.getVoices();
       const voice = webVoices.find(v => v.name === selectedVoiceRef.current);
-      if (voice) utterance.voice = voice;
+      const langPrefix = requestedLang.split('-')[0].toLowerCase();
+      const compatibleVoice = voice || webVoices.find(v => v.lang.toLowerCase() === requestedLang.toLowerCase())
+        || webVoices.find(v => v.lang.toLowerCase().startsWith(langPrefix));
+      if (compatibleVoice) utterance.voice = compatibleVoice;
     }
     utterance.rate = rateRef.current;
     utterance.pitch = pitchRef.current;
@@ -524,18 +564,43 @@ export function useTTS() {
         return;
       }
 
-      // Retry failed — fallback to Cloud TTS for remaining chunks
-      ttsLog(`WebSpeech failed after retry, falling back to Cloud TTS`);
-      toast.info("Web Speech falhou no celular, usando Cloud TTS", {
-        description: "O motor de voz local não é estável neste dispositivo.",
-        duration: 4000,
-      });
+      ttsLog(`WebSpeech failed after retry, switching engine`);
       speechSynthesis.cancel();
-      speakChunkNative(chunkIndex, gen);
+      const fallbackStarted = fallbackChunkRef.current?.('webspeech', chunkIndex, gen, errorMsg);
+      if (!fallbackStarted) {
+        toast.error("Web Speech falhou", {
+          description: "Nenhum outro motor de voz conseguiu iniciar neste dispositivo.",
+          duration: 5000,
+        });
+        speakingRef.current = false;
+        setIsSpeaking(false);
+        setIsPaused(false);
+        setActiveCharIndex(-1);
+      }
     };
 
-    if (typeof speechSynthesis === 'undefined') return;
-    speechSynthesis.speak(utterance);
+    if (typeof speechSynthesis === 'undefined') {
+      const fallbackStarted = fallbackChunkRef.current?.('webspeech', chunkIndex, gen, 'SpeechSynthesis API unavailable');
+      if (!fallbackStarted) {
+        speakingRef.current = false;
+        setIsSpeaking(false);
+        setIsPaused(false);
+        setActiveCharIndex(-1);
+      }
+      return;
+    }
+    try {
+      speechSynthesis.speak(utterance);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const fallbackStarted = fallbackChunkRef.current?.('webspeech', chunkIndex, gen, msg);
+      if (!fallbackStarted) {
+        speakingRef.current = false;
+        setIsSpeaking(false);
+        setIsPaused(false);
+        setActiveCharIndex(-1);
+      }
+    }
   }, [clearWordTimer, updatePosition, startWordStepper, speakChunkNative]);
 
   // ─── Edge TTS (experimental) chunk speaker ───
@@ -575,12 +640,17 @@ export function useTTS() {
     const fallbackToWebSpeech = (reason: string) => {
       if (gen !== generationRef.current) return;
       ttsError(`[EdgeTTS] ${reason} — falling back to Web Speech`);
-      toast.warning('Edge TTS indisponível', {
-        description: 'Voltando para Web Speech automaticamente.',
-        duration: 4000,
-      });
-      if (!isNative()) speakChunkWeb(chunkIndex, gen);
-      else speakChunkNative(chunkIndex, gen);
+      const fallbackStarted = fallbackChunkRef.current?.('edge', chunkIndex, gen, reason);
+      if (!fallbackStarted) {
+        toast.error('Edge TTS indisponível', {
+          description: 'Nenhum outro motor de voz conseguiu iniciar neste dispositivo.',
+          duration: 5000,
+        });
+        speakingRef.current = false;
+        setIsSpeaking(false);
+        setIsPaused(false);
+        setActiveCharIndex(-1);
+      }
     };
 
     try {
@@ -709,12 +779,17 @@ export function useTTS() {
     const fallbackEngine = (reason: string) => {
       if (gen !== generationRef.current) return;
       ttsError(`[KokoroTTS] ${reason} — falling back`);
-      toast.warning('Kokoro TTS indisponível', {
-        description: 'Voltando para o motor padrão automaticamente.',
-        duration: 4000,
-      });
-      if (!isNative()) speakChunkWeb(chunkIndex, gen);
-      else speakChunkNative(chunkIndex, gen);
+      const fallbackStarted = fallbackChunkRef.current?.('kokoro', chunkIndex, gen, reason);
+      if (!fallbackStarted) {
+        toast.error('Kokoro TTS indisponível', {
+          description: 'Nenhum outro motor de voz conseguiu iniciar neste dispositivo.',
+          duration: 5000,
+        });
+        speakingRef.current = false;
+        setIsSpeaking(false);
+        setIsPaused(false);
+        setActiveCharIndex(-1);
+      }
     };
 
     // First-load notice — Kokoro downloads ~85MB on the first run.
@@ -805,19 +880,64 @@ export function useTTS() {
   }, [clearWordTimer, updatePosition, startWordStepper, speakChunkWeb, speakChunkNative, voices]);
 
   // ─── Unified speak function ───
-  // Routes to the correct speaker based on engine preference
-  const speakChunk = useCallback((chunkIndex: number, gen: number) => {
-    const engine = getTTSEngine();
+  // Routes to the correct speaker and switches engines when one fails.
+  const runChunkWithEngine = useCallback((engine: RuntimeTTSEngine, chunkIndex: number, gen: number) => {
     if (engine === 'edge') {
       void speakChunkEdge(chunkIndex, gen);
     } else if (engine === 'kokoro') {
       void speakChunkKokoro(chunkIndex, gen);
-    } else if (!isNative() && engine === 'webspeech') {
+    } else if (engine === 'webspeech') {
       speakChunkWeb(chunkIndex, gen);
     } else {
-      speakChunkNative(chunkIndex, gen);
+      void speakChunkNative(chunkIndex, gen);
     }
   }, [speakChunkNative, speakChunkWeb, speakChunkEdge, speakChunkKokoro]);
+
+  const fallbackChunk = useCallback((failedEngine: RuntimeTTSEngine, chunkIndex: number, gen: number, reason: string): boolean => {
+    if (gen !== generationRef.current || !speakingRef.current) return false;
+    failedEnginesRef.current.add(failedEngine);
+    edgePrefetchRef.current = null;
+
+    const preferred = runtimeEngineRef.current || getPreferredRuntimeEngine();
+    const nextEngine = chooseRuntimeEngine(preferred, failedEnginesRef.current);
+    if (!nextEngine) return false;
+
+    runtimeEngineRef.current = nextEngine;
+    setDebugInfo(prev => `${prev} | Fallback: ${runtimeEngineLabel(failedEngine)} → ${runtimeEngineLabel(nextEngine)}`);
+    if (!fallbackNoticeShownRef.current) {
+      fallbackNoticeShownRef.current = true;
+      toast.warning(`${runtimeEngineLabel(failedEngine)} indisponível`, {
+        description: `Tentando ${runtimeEngineLabel(nextEngine)} automaticamente.`,
+        duration: 4000,
+      });
+    }
+    ttsLog(`[TTS] fallback ${failedEngine} -> ${nextEngine}: ${reason}`);
+    runChunkWithEngine(nextEngine, chunkIndex, gen);
+    return true;
+  }, [runChunkWithEngine]);
+
+  useEffect(() => {
+    fallbackChunkRef.current = fallbackChunk;
+    return () => { fallbackChunkRef.current = null; };
+  }, [fallbackChunk]);
+
+  const speakChunk = useCallback((chunkIndex: number, gen: number) => {
+    const preferred = runtimeEngineRef.current || getPreferredRuntimeEngine();
+    const engine = chooseRuntimeEngine(preferred, failedEnginesRef.current);
+    if (!engine) {
+      speakingRef.current = false;
+      setIsSpeaking(false);
+      setIsPaused(false);
+      setActiveCharIndex(-1);
+      toast.error('Nenhum motor de voz disponível', {
+        description: 'Teste outro motor nas configurações de voz do app ou instale uma voz no sistema.',
+        duration: 6000,
+      });
+      return;
+    }
+    runtimeEngineRef.current = engine;
+    runChunkWithEngine(engine, chunkIndex, gen);
+  }, [runChunkWithEngine]);
 
   const cancelCurrentSpeech = useCallback(async (resetUi: boolean) => {
     // Increment generation to invalidate all in-flight chunk callbacks
@@ -825,6 +945,9 @@ export function useTTS() {
     speakingRef.current = false;
     pausedRef.current = false;
     lastUiUpdateRef.current = { ts: 0, charIndex: -1 };
+    runtimeEngineRef.current = null;
+    failedEnginesRef.current = new Set();
+    fallbackNoticeShownRef.current = false;
 
     const stopPromise = nativeStop().catch(() => {});
 
@@ -884,6 +1007,9 @@ export function useTTS() {
     // FIX #1: New generation for this speak session
     const gen = ++generationRef.current;
     lastUiUpdateRef.current = { ts: 0, charIndex: -1 };
+    runtimeEngineRef.current = getPreferredRuntimeEngine();
+    failedEnginesRef.current = new Set();
+    fallbackNoticeShownRef.current = false;
     speakingRef.current = true;
     pausedRef.current = false;
     setIsSpeaking(true);
