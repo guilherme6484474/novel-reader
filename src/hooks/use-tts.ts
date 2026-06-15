@@ -187,8 +187,11 @@ export function useTTS() {
       return mapped;
     };
 
+    // Always append Edge TTS voices so the user can pick them once the engine is set to "edge".
+    const withEdgeVoices = (list: TTSVoice[]): TTSVoice[] => [...list, ...EDGE_TTS_VOICES];
+
     const loadNativeVoices = async () => {
-      applyVoices(SYSTEM_DEFAULT_VOICES);
+      applyVoices(withEdgeVoices(SYSTEM_DEFAULT_VOICES));
       setDebugInfo(`Native=${useNativeRef.current}, WebSpeech=${typeof speechSynthesis !== 'undefined'}, loading...`);
 
       try {
@@ -211,11 +214,11 @@ export function useTTS() {
             ? `OK: ${mapped.length} voices (${pluginCount} from engine). Native=${useNativeRef.current}`
             : `Sem vozes reais do motor Android. Usando fallback do sistema (${mapped.length}).`
         );
-        applyVoices(mapped);
+        applyVoices(withEdgeVoices(mapped));
       } catch (err) {
         console.warn('[TTS] Failed loading voices, using defaults:', err);
         setDebugInfo(`Error loading voices: ${err}. Using defaults.`);
-        applyVoices(SYSTEM_DEFAULT_VOICES);
+        applyVoices(withEdgeVoices(SYSTEM_DEFAULT_VOICES));
       }
     };
 
@@ -226,7 +229,7 @@ export function useTTS() {
 
     // Web Speech API
     if (typeof speechSynthesis === 'undefined') {
-      applyVoices(SYSTEM_DEFAULT_VOICES);
+      applyVoices(withEdgeVoices(SYSTEM_DEFAULT_VOICES));
       return () => { cancelled = true; };
     }
 
@@ -239,7 +242,7 @@ export function useTTS() {
         voiceURI: sv.voiceURI || '',
       })));
       const final = ensureVoices(mapped);
-      applyVoices(final);
+      applyVoices(withEdgeVoices(final));
     };
 
     loadVoices();
