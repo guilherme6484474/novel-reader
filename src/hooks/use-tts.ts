@@ -573,8 +573,28 @@ export function useTTS() {
       }
     };
 
-    if (typeof speechSynthesis === 'undefined') return;
-    speechSynthesis.speak(utterance);
+    if (typeof speechSynthesis === 'undefined') {
+      const fallbackStarted = fallbackChunkRef.current?.('webspeech', chunkIndex, gen, 'SpeechSynthesis API unavailable');
+      if (!fallbackStarted) {
+        speakingRef.current = false;
+        setIsSpeaking(false);
+        setIsPaused(false);
+        setActiveCharIndex(-1);
+      }
+      return;
+    }
+    try {
+      speechSynthesis.speak(utterance);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const fallbackStarted = fallbackChunkRef.current?.('webspeech', chunkIndex, gen, msg);
+      if (!fallbackStarted) {
+        speakingRef.current = false;
+        setIsSpeaking(false);
+        setIsPaused(false);
+        setActiveCharIndex(-1);
+      }
+    }
   }, [clearWordTimer, updatePosition, startWordStepper, speakChunkNative]);
 
   // ─── Edge TTS (experimental) chunk speaker ───
