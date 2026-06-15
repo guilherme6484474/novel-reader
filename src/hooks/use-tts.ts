@@ -903,7 +903,7 @@ export function useTTS() {
 
     // For Edge TTS we can pause the audio element without losing playback position
     const engine = getTTSEngine();
-    if (engine === 'edge' && edgeAudioRef.current) {
+    if ((engine === 'edge' || engine === 'kokoro') && edgeAudioRef.current) {
       try { edgeAudioRef.current.pause(); } catch { /* ignore */ }
       return;
     }
@@ -926,7 +926,7 @@ export function useTTS() {
     updateMediaSessionPlaybackState('playing');
 
     const engine = getTTSEngine();
-    if (engine === 'edge' && edgeAudioRef.current && edgeAudioRef.current.src) {
+    if ((engine === 'edge' || engine === 'kokoro') && edgeAudioRef.current && edgeAudioRef.current.src) {
       // Resume from current position in the MP3 — restart word stepper too
       chunkStartTimeRef.current = performance.now() - (edgeAudioRef.current.currentTime * 1000);
       startWordStepper(
