@@ -199,7 +199,6 @@ const Index = () => {
   const tts = useTTS();
   const { isAdmin } = useIsAdmin();
   const pwa = usePwaInstall();
-  const { theme, setTheme } = useTheme();
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const chapterRef = useRef<ChapterData | null>(null);
