@@ -3,8 +3,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { BookOpen, Loader2, Mail, Lock, User } from "lucide-react";
+import { Loader2, Mail, Lock, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import logoMark from "@/assets/logo-novel-reader.png";
 
 const Auth = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -44,17 +45,26 @@ const Auth = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 pb-safe" data-theme="light" style={{ '--background': '40 30% 97%', '--foreground': '30 10% 12%', '--card': '40 25% 95%', '--card-foreground': '30 10% 12%', '--primary': '25 80% 52%', '--primary-foreground': '40 30% 97%', '--muted': '35 15% 92%', '--muted-foreground': '30 8% 46%', '--border': '35 15% 88%', '--input': '35 15% 85%', '--ring': '25 80% 52%', background: 'hsl(40, 30%, 97%)', color: 'hsl(30, 10%, 12%)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' } as React.CSSProperties}>
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 mx-auto mb-4">
-            <BookOpen className="h-7 w-7 text-primary" />
+    <div className="min-h-screen flex items-center justify-center px-4 pb-safe relative overflow-hidden bg-background text-foreground" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+      {/* Ambient gold glow */}
+      <div className="pointer-events-none absolute inset-0 opacity-60" aria-hidden="true">
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 h-[400px] w-[400px] rounded-full bg-primary/15 blur-[120px]" />
+        <div className="absolute bottom-0 left-1/3 h-[260px] w-[260px] rounded-full bg-primary-glow/10 blur-[100px]" />
+      </div>
+
+      <div className="relative w-full max-w-sm">
+        <div className="text-center mb-10">
+          <div className="relative h-20 w-20 mx-auto mb-5">
+            <div className="absolute inset-0 rounded-full bg-gradient-gold opacity-25 blur-xl" aria-hidden="true" />
+            <img src={logoMark} alt="Novel Reader" width={80} height={80}
+              className="relative h-20 w-20 object-contain animate-logo-float drop-shadow-[0_0_18px_hsl(var(--primary)/0.45)]" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground" style={{ fontFamily: 'var(--font-heading)' }}>
-            Novel Reader
+          <h1 className="font-display text-3xl font-semibold tracking-tight">
+            Novel <span className="text-gold-gradient italic">Reader</span>
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {isLogin ? "Entre para continuar lendo" : "Crie sua conta"}
+          <div className="ornament-divider my-3 max-w-[180px] mx-auto text-xs">❦</div>
+          <p className="text-sm text-muted-foreground font-display italic">
+            {isLogin ? "Entre para retomar a leitura" : "Comece sua biblioteca pessoal"}
           </p>
         </div>
 

@@ -1,91 +1,149 @@
-@import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400;1,500&family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,800&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
+  /* ───────── Theme: NOIR & GOLD (default) ─────────
+     Editorial dark: ink black, brass gold accents, ivory text.
+     Inspired by leather-bound first editions and Kindle Oasis. */
   :root {
-    --background: 40 30% 97%;
-    --foreground: 30 10% 12%;
+    --background: 36 12% 6%;
+    --foreground: 42 30% 92%;
 
-    --card: 40 25% 95%;
-    --card-foreground: 30 10% 12%;
+    --card: 32 14% 9%;
+    --card-foreground: 42 30% 92%;
 
-    --popover: 40 30% 97%;
-    --popover-foreground: 30 10% 12%;
+    --popover: 32 16% 8%;
+    --popover-foreground: 42 30% 92%;
 
-    --primary: 25 80% 52%;
-    --primary-foreground: 40 30% 97%;
+    /* Brass gold — primary accent */
+    --primary: 42 56% 54%;
+    --primary-foreground: 36 18% 8%;
+    --primary-glow: 45 75% 68%;
 
-    --secondary: 35 20% 90%;
-    --secondary-foreground: 30 10% 20%;
+    --secondary: 32 10% 14%;
+    --secondary-foreground: 42 25% 88%;
 
-    --muted: 35 15% 92%;
-    --muted-foreground: 30 8% 46%;
+    --muted: 32 8% 13%;
+    --muted-foreground: 38 12% 60%;
 
-    --accent: 25 60% 94%;
-    --accent-foreground: 25 80% 30%;
+    --accent: 42 38% 22%;
+    --accent-foreground: 45 70% 78%;
 
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 40 30% 97%;
+    --destructive: 0 65% 48%;
+    --destructive-foreground: 42 30% 95%;
 
-    --border: 35 15% 88%;
-    --input: 35 15% 85%;
-    --ring: 25 80% 52%;
+    --border: 36 14% 18%;
+    --input: 36 12% 16%;
+    --ring: 42 56% 54%;
 
-    --radius: 0.75rem;
+    --radius: 0.5rem;
 
-    --sidebar-background: 40 25% 95%;
-    --sidebar-foreground: 30 10% 26%;
-    --sidebar-primary: 25 80% 52%;
-    --sidebar-primary-foreground: 40 30% 97%;
-    --sidebar-accent: 35 20% 90%;
-    --sidebar-accent-foreground: 30 10% 20%;
-    --sidebar-border: 35 15% 88%;
-    --sidebar-ring: 25 80% 52%;
+    --sidebar-background: 32 14% 7%;
+    --sidebar-foreground: 42 20% 80%;
+    --sidebar-primary: 42 56% 54%;
+    --sidebar-primary-foreground: 36 18% 8%;
+    --sidebar-accent: 32 10% 14%;
+    --sidebar-accent-foreground: 42 25% 88%;
+    --sidebar-border: 36 14% 18%;
+    --sidebar-ring: 42 56% 54%;
 
-    --font-heading: 'Inter', sans-serif;
-    --font-reading: 'Crimson Pro', Georgia, serif;
+    /* Typography */
+    --font-display: 'Fraunces', 'Cormorant Garamond', Georgia, serif;
+    --font-heading: 'Fraunces', Georgia, serif;
+    --font-body: 'Inter Tight', system-ui, sans-serif;
+    --font-reading: 'Cormorant Garamond', Georgia, serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+    /* Signature gradients */
+    --gradient-gold: linear-gradient(135deg, hsl(42 65% 58%) 0%, hsl(38 75% 48%) 50%, hsl(45 85% 70%) 100%);
+    --gradient-ink: radial-gradient(ellipse at top, hsl(36 18% 12%) 0%, hsl(36 12% 6%) 70%);
+    --gradient-edge: linear-gradient(180deg, transparent 0%, hsl(42 56% 54% / 0.08) 100%);
+
+    /* Shadows with gold tint */
+    --shadow-elegant: 0 25px 50px -12px hsl(36 12% 2% / 0.7);
+    --shadow-gold: 0 8px 32px -8px hsl(42 75% 50% / 0.35);
+    --shadow-inset: inset 0 1px 0 0 hsl(42 60% 70% / 0.08);
   }
 
-  .dark {
-    --background: 30 10% 8%;
-    --foreground: 35 15% 90%;
+  /* ───────── Theme: PERGAMINHO SÉPIA ─────────
+     Warm paper, ink black, gentle on the eyes for long reading. */
+  [data-theme="sepia"] {
+    --background: 38 35% 92%;
+    --foreground: 28 30% 14%;
+    --card: 38 40% 95%;
+    --card-foreground: 28 30% 14%;
+    --popover: 38 40% 95%;
+    --popover-foreground: 28 30% 14%;
+    --primary: 24 55% 32%;
+    --primary-foreground: 38 40% 96%;
+    --primary-glow: 28 65% 48%;
+    --secondary: 36 25% 86%;
+    --secondary-foreground: 28 30% 18%;
+    --muted: 36 22% 88%;
+    --muted-foreground: 28 15% 42%;
+    --accent: 28 45% 80%;
+    --accent-foreground: 24 55% 22%;
+    --destructive: 0 65% 42%;
+    --destructive-foreground: 38 40% 96%;
+    --border: 32 22% 78%;
+    --input: 32 22% 80%;
+    --ring: 24 55% 32%;
+    --sidebar-background: 38 30% 90%;
+    --sidebar-foreground: 28 30% 20%;
+    --sidebar-primary: 24 55% 32%;
+    --sidebar-primary-foreground: 38 40% 96%;
+    --sidebar-accent: 36 25% 86%;
+    --sidebar-accent-foreground: 28 30% 18%;
+    --sidebar-border: 32 22% 78%;
+    --sidebar-ring: 24 55% 32%;
+    --gradient-gold: linear-gradient(135deg, hsl(24 55% 32%), hsl(28 65% 48%));
+    --gradient-ink: radial-gradient(ellipse at top, hsl(38 40% 95%), hsl(38 35% 88%) 70%);
+    --gradient-edge: linear-gradient(180deg, transparent, hsl(24 55% 32% / 0.08));
+    --shadow-elegant: 0 25px 50px -12px hsl(28 30% 14% / 0.18);
+    --shadow-gold: 0 8px 32px -8px hsl(24 55% 32% / 0.25);
+    --shadow-inset: inset 0 1px 0 0 hsl(0 0% 100% / 0.6);
+  }
 
-    --card: 30 10% 11%;
-    --card-foreground: 35 15% 90%;
-
-    --popover: 30 10% 11%;
-    --popover-foreground: 35 15% 90%;
-
-    --primary: 25 80% 55%;
-    --primary-foreground: 30 10% 8%;
-
-    --secondary: 30 8% 16%;
-    --secondary-foreground: 35 15% 90%;
-
-    --muted: 30 8% 16%;
-    --muted-foreground: 35 10% 55%;
-
-    --accent: 25 30% 18%;
-    --accent-foreground: 25 60% 75%;
-
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 35 15% 90%;
-
-    --border: 30 8% 18%;
-    --input: 30 8% 18%;
-    --ring: 25 80% 55%;
-
-    --sidebar-background: 30 10% 10%;
-    --sidebar-foreground: 35 15% 90%;
-    --sidebar-primary: 25 80% 55%;
-    --sidebar-primary-foreground: 30 10% 8%;
-    --sidebar-accent: 30 8% 16%;
-    --sidebar-accent-foreground: 35 15% 90%;
-    --sidebar-border: 30 8% 18%;
-    --sidebar-ring: 25 80% 55%;
+  /* ───────── Theme: AURORA MEIA-NOITE ─────────
+     Deep indigo with electric aurora — for fantasy / sci-fi novels. */
+  [data-theme="aurora"] {
+    --background: 240 35% 6%;
+    --foreground: 230 30% 94%;
+    --card: 240 40% 9%;
+    --card-foreground: 230 30% 94%;
+    --popover: 240 40% 9%;
+    --popover-foreground: 230 30% 94%;
+    --primary: 175 70% 55%;
+    --primary-foreground: 240 40% 8%;
+    --primary-glow: 175 85% 70%;
+    --secondary: 240 30% 14%;
+    --secondary-foreground: 230 30% 94%;
+    --muted: 240 25% 13%;
+    --muted-foreground: 230 18% 65%;
+    --accent: 270 50% 28%;
+    --accent-foreground: 270 80% 85%;
+    --destructive: 350 75% 55%;
+    --destructive-foreground: 230 30% 94%;
+    --border: 240 25% 18%;
+    --input: 240 25% 16%;
+    --ring: 175 70% 55%;
+    --sidebar-background: 240 38% 8%;
+    --sidebar-foreground: 230 25% 85%;
+    --sidebar-primary: 175 70% 55%;
+    --sidebar-primary-foreground: 240 40% 8%;
+    --sidebar-accent: 240 30% 14%;
+    --sidebar-accent-foreground: 230 30% 94%;
+    --sidebar-border: 240 25% 18%;
+    --sidebar-ring: 175 70% 55%;
+    --gradient-gold: linear-gradient(135deg, hsl(175 80% 60%), hsl(270 70% 65%) 60%, hsl(310 80% 65%));
+    --gradient-ink: radial-gradient(ellipse at top, hsl(260 45% 12%), hsl(240 35% 6%) 70%);
+    --gradient-edge: linear-gradient(180deg, transparent, hsl(175 70% 55% / 0.12));
+    --shadow-elegant: 0 25px 50px -12px hsl(260 50% 4% / 0.8);
+    --shadow-gold: 0 8px 32px -8px hsl(175 80% 55% / 0.45);
+    --shadow-inset: inset 0 1px 0 0 hsl(175 80% 70% / 0.12);
   }
 }
 
@@ -95,7 +153,6 @@
   }
 
   html {
-    /* Support safe areas on all devices (notch, nav bar, etc.) */
     padding-top: env(safe-area-inset-top);
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
@@ -105,12 +162,75 @@
 
   body {
     @apply bg-background text-foreground;
-    font-family: var(--font-heading);
+    font-family: var(--font-body);
+    font-feature-settings: 'ss01', 'cv11';
     overflow-x: hidden;
     -webkit-tap-highlight-color: transparent;
-    /* Smooth scrolling on iOS */
     -webkit-overflow-scrolling: touch;
+    background-image: var(--gradient-ink);
+    background-attachment: fixed;
   }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    letter-spacing: -0.015em;
+    font-feature-settings: 'ss01';
+  }
+}
+
+/* ───────── Custom utilities ───────── */
+@layer utilities {
+  .text-gold-gradient {
+    background-image: var(--gradient-gold);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .bg-gold-gradient { background-image: var(--gradient-gold); }
+  .shadow-elegant { box-shadow: var(--shadow-elegant); }
+  .shadow-gold { box-shadow: var(--shadow-gold); }
+  .shadow-inset-top { box-shadow: var(--shadow-inset); }
+
+  /* Subtle 3D tilt — perspective container + child rotation on hover.
+     Mobile-safe: only activates on devices with hover/fine-pointer. */
+  .tilt-3d {
+    transform-style: preserve-3d;
+    transition: transform 350ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 350ms;
+    will-change: transform;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .tilt-3d:hover {
+      transform: perspective(900px) rotateX(2.5deg) rotateY(-3.5deg) translateY(-2px);
+      box-shadow: var(--shadow-gold);
+    }
+  }
+
+  /* Hair-thin gold rule, used as page/section divider. */
+  .gold-rule {
+    background: linear-gradient(90deg, transparent, hsl(var(--primary) / 0.55), transparent);
+    height: 1px;
+  }
+
+  /* Decorative ornament — drop-cap-style first letter, optional. */
+  .ornament-divider::before,
+  .ornament-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, hsl(var(--border)), transparent);
+  }
+  .ornament-divider {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    color: hsl(var(--primary));
+    font-family: var(--font-display);
+    font-style: italic;
+  }
+
+  .font-display { font-family: var(--font-display); }
+  .font-body { font-family: var(--font-body); }
+  .font-reading { font-family: var(--font-reading); }
 }
 
 /* Minimum touch targets for interactive elements on mobile */

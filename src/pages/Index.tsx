@@ -21,13 +21,14 @@ import { toast } from "sonner";
 import {
   BookOpen, ChevronLeft, ChevronRight, Globe, Loader2,
   Pause, Play, Square, Volume2, Settings2, Search,
-  Moon, Sun, LogIn, LogOut, History, X, Trash2, Minus, Plus, Type,
+  LogIn, LogOut, History, X, Trash2, Minus, Plus, Type,
   RefreshCw, Download, BarChart3, Mic, Undo2, ArchiveRestore,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
-import { useTheme } from "next-themes";
 import { useNavigate } from "react-router-dom";
+import { ThemeSwitcher } from "@/components/ThemeSwitcher";
+import logoMark from "@/assets/logo-novel-reader.png";
 import { TTSDiagnosticsPanel } from "@/components/TTSDiagnostics";
 
 const LANGUAGES = [
@@ -198,7 +199,6 @@ const Index = () => {
   const tts = useTTS();
   const { isAdmin } = useIsAdmin();
   const pwa = usePwaInstall();
-  const { theme, setTheme } = useTheme();
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const chapterRef = useRef<ChapterData | null>(null);
@@ -617,13 +617,15 @@ const Index = () => {
     <div className="min-h-screen bg-background text-foreground transition-colors">
       {/* Header */}
       <header
-        className="sticky top-0 z-20 border-b border-border/60 bg-background/80 backdrop-blur-xl"
+        className="sticky top-0 z-20 border-b border-border/60 bg-background/75 backdrop-blur-xl relative"
       >
+        {/* Hair-thin gold rule under the header */}
+        <div className="absolute inset-x-0 bottom-0 gold-rule pointer-events-none" aria-hidden="true" />
         <div className="mx-auto max-w-3xl px-4 sm:px-6 py-3 sm:py-4">
           {/* Top bar */}
           <div className="flex items-center justify-between mb-3">
             <div
-              className="flex items-center gap-2.5 cursor-pointer"
+              className="flex items-center gap-3 cursor-pointer group select-none"
               onClick={() => {
                 tts.stop();
                 setChapter(null);
@@ -635,19 +637,31 @@ const Index = () => {
                 window.scrollTo({ top: 0, behavior: 'instant' });
               }}
             >
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
-                <BookOpen className="h-5 w-5 text-primary" />
+              <div className="relative flex h-10 w-10 items-center justify-center">
+                <div className="absolute inset-0 rounded-full bg-gradient-gold opacity-20 blur-md group-hover:opacity-40 transition-opacity" aria-hidden="true" />
+                <img
+                  src={logoMark}
+                  alt="Novel Reader"
+                  width={40}
+                  height={40}
+                  className="relative h-9 w-9 object-contain animate-logo-float drop-shadow-[0_0_8px_hsl(var(--primary)/0.35)]"
+                />
               </div>
-              <h1 className="text-base sm:text-lg font-bold tracking-tight" style={{ fontFamily: 'var(--font-heading)' }}>
-                Novel Reader
-              </h1>
+              <div className="flex flex-col -space-y-0.5 leading-none">
+                <h1 className="font-display text-lg sm:text-xl font-semibold tracking-tight">
+                  Novel <span className="text-gold-gradient italic">Reader</span>
+                </h1>
+                <span className="font-display italic text-[10px] sm:text-[11px] text-muted-foreground tracking-[0.2em] uppercase">
+                  Edição de luxo
+                </span>
+              </div>
             </div>
             <div className="flex items-center gap-0.5 -mr-2">
               {pwa.canInstall && (
                 <Button
                   variant="ghost" size="icon"
                   onClick={pwa.install}
-                  className="h-10 w-10 rounded-lg text-primary hover:text-primary"
+                  className="h-10 w-10 rounded-lg text-primary hover:text-primary-glow"
                   title="Instalar app"
                 >
                   <Download className="h-5 w-5" />
@@ -662,13 +676,7 @@ const Index = () => {
                   <History className="h-5 w-5" />
                 </Button>
               )}
-              <Button
-                variant="ghost" size="icon"
-                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                className="h-10 w-10 rounded-lg text-muted-foreground hover:text-foreground"
-              >
-                {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-              </Button>
+              <ThemeSwitcher />
               <Button
                 variant="ghost" size="icon"
                 onClick={() => setShowSettings(!showSettings)}
@@ -1027,7 +1035,7 @@ const Index = () => {
               {history.map((h) => (
                 <div
                   key={h.id}
-                  className="flex items-center gap-3 p-3 rounded-xl bg-background border border-border/40 active:border-primary/30 transition-colors cursor-pointer group"
+                  className="tilt-3d flex items-center gap-3 p-3 rounded-xl bg-card/70 border border-border/50 hover:border-primary/40 active:border-primary/30 cursor-pointer group shadow-elegant/30"
                   onClick={() => handleHistoryItemClick(h)}
                 >
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
@@ -1160,7 +1168,7 @@ const Index = () => {
                     {novels.map((novel) => (
                       <div
                         key={novel.novel_url}
-                        className="flex items-center gap-4 p-4 rounded-2xl bg-card border border-border/60 hover:border-primary/40 hover:shadow-md transition-all cursor-pointer group"
+                        className="tilt-3d flex items-center gap-4 p-4 rounded-2xl bg-card border border-border/60 hover:border-primary/40 cursor-pointer group shadow-elegant"
                         onClick={() => handleHistoryItemClick(novel)}
                       >
                         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 group-hover:bg-primary/15 transition-colors">
