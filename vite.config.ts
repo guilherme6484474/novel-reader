@@ -22,6 +22,9 @@ export default defineConfig(({ mode }) => ({
       workbox: {
         navigateFallbackDenylist: [/^\/~oauth/],
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
+        // Kokoro TTS WASM glue chunk is ~2.2MB. Raise limit so the build
+        // succeeds; the actual ONNX model is fetched on demand, not precached.
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
       },
       manifest: {
         name: "Novel Reader",
