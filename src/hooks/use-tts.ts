@@ -590,12 +590,17 @@ export function useTTS() {
     const fallbackToWebSpeech = (reason: string) => {
       if (gen !== generationRef.current) return;
       ttsError(`[EdgeTTS] ${reason} — falling back to Web Speech`);
-      toast.warning('Edge TTS indisponível', {
-        description: 'Voltando para Web Speech automaticamente.',
-        duration: 4000,
-      });
-      if (!isNative()) speakChunkWeb(chunkIndex, gen);
-      else speakChunkNative(chunkIndex, gen);
+      const fallbackStarted = fallbackChunkRef.current?.('edge', chunkIndex, gen, reason);
+      if (!fallbackStarted) {
+        toast.error('Edge TTS indisponível', {
+          description: 'Nenhum outro motor de voz conseguiu iniciar neste dispositivo.',
+          duration: 5000,
+        });
+        speakingRef.current = false;
+        setIsSpeaking(false);
+        setIsPaused(false);
+        setActiveCharIndex(-1);
+      }
     };
 
     try {
@@ -724,12 +729,17 @@ export function useTTS() {
     const fallbackEngine = (reason: string) => {
       if (gen !== generationRef.current) return;
       ttsError(`[KokoroTTS] ${reason} — falling back`);
-      toast.warning('Kokoro TTS indisponível', {
-        description: 'Voltando para o motor padrão automaticamente.',
-        duration: 4000,
-      });
-      if (!isNative()) speakChunkWeb(chunkIndex, gen);
-      else speakChunkNative(chunkIndex, gen);
+      const fallbackStarted = fallbackChunkRef.current?.('kokoro', chunkIndex, gen, reason);
+      if (!fallbackStarted) {
+        toast.error('Kokoro TTS indisponível', {
+          description: 'Nenhum outro motor de voz conseguiu iniciar neste dispositivo.',
+          duration: 5000,
+        });
+        speakingRef.current = false;
+        setIsSpeaking(false);
+        setIsPaused(false);
+        setActiveCharIndex(-1);
+      }
     };
 
     // First-load notice — Kokoro downloads ~85MB on the first run.
