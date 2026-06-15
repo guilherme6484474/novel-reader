@@ -915,17 +915,20 @@ const Index = () => {
                       )}
                       <SelectItem value="webspeech">🌐 Navegador (Web Speech API)</SelectItem>
                       <SelectItem value="edge">☁️ Edge TTS (experimental, alta qualidade)</SelectItem>
+                      <SelectItem value="kokoro">🧠 Kokoro TTS (local, offline após 1ª vez)</SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-[10px] text-muted-foreground mt-2">
                     {ttsEngine === 'edge'
                       ? "⚠️ Edge TTS usa um endpoint não-oficial da Microsoft. Qualidade alta, gratuito, toca com tela apagada — mas pode parar de funcionar sem aviso. Há fallback automático para o navegador."
+                      : ttsEngine === 'kokoro'
+                      ? "🧠 Kokoro TTS roda 100% no seu dispositivo via WebAssembly. Primeira vez baixa ~85MB e fica em cache; depois é instantâneo e funciona offline. Vozes pt-BR: Dora, Alex, Santa."
                       : isNative() && ttsEngine === 'native'
                       ? "📱 Motor de voz nativo do dispositivo. Toca com a tela apagada."
                       : "🌐 Web Speech API do navegador. Vozes dependem do sistema operacional."}
                   </p>
                   <p className="text-[10px] text-muted-foreground mt-1">
-                    Após escolher o motor, selecione uma voz compatível acima (vozes ☁️ Edge funcionam apenas com o motor Edge TTS).
+                    Após escolher o motor, selecione uma voz compatível acima (☁️ Edge → motor Edge; 🧠 Kokoro → motor Kokoro).
                   </p>
                 </div>
 

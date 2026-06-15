@@ -11,7 +11,7 @@
 import { Capacitor } from '@capacitor/core';
 import { ttsLog, ttsWarn, ttsError } from '@/lib/tts-debug-log';
 
-export type TTSEnginePreference = 'webspeech' | 'native' | 'edge';
+export type TTSEnginePreference = 'webspeech' | 'native' | 'edge' | 'kokoro';
 
 export function isNative(): boolean {
   return Capacitor.isNativePlatform();
@@ -22,7 +22,7 @@ export function isNative(): boolean {
  */
 export function getTTSEngine(): TTSEnginePreference {
   const raw = (typeof localStorage !== 'undefined' && localStorage.getItem('nr-ttsEngine')) || '';
-  if (raw === 'webspeech' || raw === 'native' || raw === 'edge') return raw;
+  if (raw === 'webspeech' || raw === 'native' || raw === 'edge' || raw === 'kokoro') return raw;
   // Legacy values ('cloud', 'piper', '') → pick the best for the platform
   const fallback: TTSEnginePreference = isNative() ? 'native' : 'webspeech';
   if (raw) {
