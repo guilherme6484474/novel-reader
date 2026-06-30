@@ -366,6 +366,80 @@ const Index = () => {
     }
   }, [user]);
 
+  // When chapter is restored from sessionStorage on mount, look up its TTS bookmark.
+  useEffect(() => {
+    if (!user || !url || history.length === 0) return;
+    if (bookmarkCharIndex > 0) return;
+    const baseUrl = computeBaseNovelUrl(url);
+    const entry = history.find((h) => h.novel_url === baseUrl && h.chapter_url === url);
+    const idx = Number(entry?.tts_char_index) || 0;
+    if (idx > 0) setBookmarkCharIndex(idx);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, url, history]);
+
+  // Persist TTS bookmark while audio is playing (debounced) and flush on hide/pause.
+  useEffect(() => {
+    if (!user || !url) return;
+    const idx = tts.activeCharIndex;
+    if (!tts.isSpeaking || idx <= 0) return;
+    const baseUrl = computeBaseNovelUrl(url);
+    const t = window.setTimeout(() => {
+      saveTtsBookmark(user.id, baseUrl, idx);
+      setBookmarkCharIndex(idx);
+    }, 2500);
+    return () => window.clearTimeout(t);
+  }, [tts.activeCharIndex, tts.isSpeaking, user, url]);
+
+  // Flush bookmark immediately on pause / tab hide / unload.
+  useEffect(() => {
+    if (!user || !url) return;
+    const flush = () => {
+      const idx = tts.activeCharIndex;
+      if (idx <= 0) return;
+      const baseUrl = computeBaseNovelUrl(url);
+      saveTtsBookmark(user.id, baseUrl, idx);
+      setBookmarkCharIndex(idx);
+    };
+    document.addEventListener('visibilitychange', flush);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', flush);
+      window.removeEventListener('pagehide', flush);
+    };
+  }, [user, url, tts.activeCharIndex]);
+
+  // Flush right after pausing so the marker reflects the latest spoken word.
+  useEffect(() => {
+    if (!tts.isPaused || !user || !url) return;
+    const idx = tts.activeCharIndex;
+    if (idx <= 0) return;
+    const baseUrl = computeBaseNovelUrl(url);
+    saveTtsBookmark(user.id, baseUrl, idx);
+    setBookmarkCharIndex(idx);
+  }, [tts.isPaused, tts.activeCharIndex, user, url]);
+
+  // When a chapter is rendered and a meaningful bookmark exists, prompt resume.
+  useEffect(() => {
+    if (!displayText || bookmarkCharIndex < 200) return;
+    if (bookmarkPromptShownRef.current === url) return;
+    if (bookmarkCharIndex >= displayText.length - 20) return;
+    bookmarkPromptShownRef.current = url;
+    if (autoReadRef.current) {
+      setTimeout(() => tts.speakFromIndex(displayText, bookmarkCharIndex), 500);
+      toast.success('Retomando de onde o leitor parou', { duration: 4000 });
+    } else {
+      toast('Última pausa do leitor encontrada', {
+        description: 'Continuar a leitura a partir desse ponto?',
+        duration: 8000,
+        action: {
+          label: 'Continuar',
+          onClick: () => tts.speakFromIndex(displayText, bookmarkCharIndex),
+        },
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayText, bookmarkCharIndex, url]);
+
   const loadChapter = async (chapterUrl: string, opts?: { restoreScroll?: { pos: number; pct: number }; ttsCharIndex?: number }) => {
     // Cancel any in-flight translation
     if (abortRef.current) {
