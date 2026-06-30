@@ -1077,8 +1077,8 @@ export function useTTS() {
     await stopForegroundService();
   }, [cancelCurrentSpeech]);
 
-  const speak = useCallback(async (text: string) => {
-    ttsLog('[useTTS] speak() called, textLen=' + text.length);
+  const speak = useCallback(async (text: string, startCharIndex = 0) => {
+    ttsLog('[useTTS] speak() called, textLen=' + text.length + ' startAt=' + startCharIndex);
     setIsLoading(true);
     try {
       // Wire lock-screen media controls synchronously (web only)
@@ -1097,7 +1097,7 @@ export function useTTS() {
       ]);
 
       // Start speaking without waiting for background setup
-      await speakFromIndex(text, 0);
+      await speakFromIndex(text, Math.max(0, Math.min(text.length, startCharIndex)));
 
       // Ensure background setup completes (non-blocking for the user)
       await bgSetup;
