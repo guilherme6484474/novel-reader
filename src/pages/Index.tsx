@@ -1464,7 +1464,11 @@ const Index = () => {
                     }
                     toast.info("Iniciando leitura...", { duration: 2000 });
                     try {
-                      await tts.speak(displayText);
+                      if (bookmarkCharIndex > 200 && bookmarkCharIndex < displayText.length - 20) {
+                        await tts.speakFromIndex(displayText, bookmarkCharIndex);
+                      } else {
+                        await tts.speak(displayText);
+                      }
                     } catch (err: any) {
                       toast.error("Erro ao iniciar leitura", {
                         description: err?.message || "Erro desconhecido",
