@@ -220,6 +220,11 @@ const Index = () => {
   const restoredScrollRef = useRef(false);
   const [bookmarkCharIndex, setBookmarkCharIndex] = useState(0);
   const bookmarkPromptShownRef = useRef<string | null>(null);
+  // Tracks the URL we mounted with, so we only auto-restore the TTS bookmark
+  // for the chapter the user reopened — NOT for chapters loaded later via
+  // next/prev/auto-advance, where the in-memory `history` may still hold the
+  // previous chapter's stale tts_char_index.
+  const initialUrlRef = useRef<string | null>(null);
   const [autoRead, setAutoRead] = useState(() => localStorage.getItem('nr-autoRead') === 'true');
   const autoReadRef = useRef(autoRead);
   const tts = useTTS();
@@ -370,6 +375,10 @@ const Index = () => {
   useEffect(() => {
     if (!user || !url || history.length === 0) return;
     if (bookmarkCharIndex > 0) return;
+    if (initialUrlRef.current === null) initialUrlRef.current = url;
+    // Only restore on the initial mount URL. Auto-advance/next/prev call
+    // loadChapter() which already passes the correct ttsCharIndex (or 0).
+    if (initialUrlRef.current !== url) return;
     const baseUrl = computeBaseNovelUrl(url);
     const entry = history.find((h) => h.novel_url === baseUrl && h.chapter_url === url);
     const idx = Number(entry?.tts_char_index) || 0;
