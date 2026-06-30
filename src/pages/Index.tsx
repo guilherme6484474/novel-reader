@@ -13,7 +13,7 @@ import { getCachedTranslation, setCachedTranslation, clearTranslationCache } fro
 import {
   saveReadingProgress, getReadingHistory, deleteReadingEntry,
   getDeletedHistory, restoreReadingEntry, purgeReadingEntry, purgeOldDeleted,
-  saveScrollPosition, computeBaseNovelUrl,
+  saveScrollPosition, saveTtsBookmark, computeBaseNovelUrl,
 } from "@/lib/api/reading-history";
 import { updateMediaSessionMetadata } from "@/lib/keep-awake";
 import { useAuth } from "@/contexts/AuthContext";
@@ -22,7 +22,7 @@ import {
   BookOpen, ChevronLeft, ChevronRight, Globe, Loader2,
   Pause, Play, Square, Volume2, Settings2, Search,
   LogIn, LogOut, History, X, Trash2, Minus, Plus, Type,
-  RefreshCw, Download, BarChart3, Mic, Undo2, ArchiveRestore,
+  RefreshCw, Download, BarChart3, Mic, Undo2, ArchiveRestore, Bookmark,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
@@ -51,6 +51,7 @@ type HistoryEntry = {
   deleted_at?: string | null;
   scroll_position?: number | null;
   scroll_percent?: number | null;
+  tts_char_index?: number | null;
 };
 
 // Component that renders text with word-level highlighting and click-to-read
@@ -60,12 +61,16 @@ const ChapterArticle = memo(function ChapterArticle({
   isSpeaking,
   onClickWord,
   fontSize,
+  bookmarkCharIndex,
+  onResumeBookmark,
 }: {
   displayText: string;
   activeCharIndex: number;
   isSpeaking: boolean;
   onClickWord: (charIndex: number) => void;
   fontSize: number;
+  bookmarkCharIndex: number;
+  onResumeBookmark?: (charIndex: number) => void;
 }) {
   const activeParagraphRef = useRef<HTMLParagraphElement>(null);
   const lastScrolledParagraphRef = useRef(-1);
@@ -133,13 +138,31 @@ const ChapterArticle = memo(function ChapterArticle({
   const prevParaCount = prevParaCountRef.current;
   useEffect(() => { prevParaCountRef.current = paragraphs.length; }, [paragraphs.length]);
 
+  const bookmarkParagraphIndex = useMemo(() => {
+    if (bookmarkCharIndex <= 0) return -1;
+    return paragraphs.findIndex((p) =>
+      bookmarkCharIndex >= p.globalStart && bookmarkCharIndex < p.globalEnd
+    );
+  }, [bookmarkCharIndex, paragraphs]);
+
   return (
     <article style={{ fontFamily: 'var(--font-reading)', fontSize: `${fontSize}px` }}>
       {paragraphs.map((para, pi) => (
+        <div key={pi}>
+          {pi === bookmarkParagraphIndex && (!isSpeaking || activeParagraphIndex !== bookmarkParagraphIndex) && (
+            <button
+              type="button"
+              onClick={() => onResumeBookmark?.(bookmarkCharIndex)}
+              className="group/bm flex items-center gap-2 mb-2 mt-1 px-2.5 py-1 rounded-md border border-primary/40 bg-primary/5 hover:bg-primary/10 text-primary text-[11px] font-medium tracking-wide uppercase transition-colors animate-fade-in"
+              title="Continuar leitura deste ponto"
+            >
+              <Bookmark className="h-3 w-3 fill-primary/30" />
+              Última pausa do leitor — clique para continuar
+            </button>
+          )}
         <p
-          key={pi}
           ref={pi === activeParagraphIndex ? activeParagraphRef : undefined}
-          className={`mb-4 leading-[1.85] text-foreground/85 ${pi >= prevParaCount ? 'animate-fade-in' : ''}`}
+          className={`mb-4 leading-[1.85] text-foreground/85 ${pi === bookmarkParagraphIndex ? 'border-l-2 border-primary/50 pl-3 -ml-3' : ''} ${pi >= prevParaCount ? 'animate-fade-in' : ''}`}
         >
           {para.tokens.map((token, wi) => {
             if (!token.isWord) return <span key={wi}>{token.text}</span>;
@@ -167,6 +190,7 @@ const ChapterArticle = memo(function ChapterArticle({
             );
           })}
         </p>
+        </div>
       ))}
     </article>
   );
@@ -194,6 +218,8 @@ const Index = () => {
   const [trash, setTrash] = useState<HistoryEntry[]>([]);
   const pendingScrollRestoreRef = useRef<{ pos: number; pct: number } | null>(null);
   const restoredScrollRef = useRef(false);
+  const [bookmarkCharIndex, setBookmarkCharIndex] = useState(0);
+  const bookmarkPromptShownRef = useRef<string | null>(null);
   const [autoRead, setAutoRead] = useState(() => localStorage.getItem('nr-autoRead') === 'true');
   const autoReadRef = useRef(autoRead);
   const tts = useTTS();
@@ -340,7 +366,81 @@ const Index = () => {
     }
   }, [user]);
 
-  const loadChapter = async (chapterUrl: string, opts?: { restoreScroll?: { pos: number; pct: number } }) => {
+  // When chapter is restored from sessionStorage on mount, look up its TTS bookmark.
+  useEffect(() => {
+    if (!user || !url || history.length === 0) return;
+    if (bookmarkCharIndex > 0) return;
+    const baseUrl = computeBaseNovelUrl(url);
+    const entry = history.find((h) => h.novel_url === baseUrl && h.chapter_url === url);
+    const idx = Number(entry?.tts_char_index) || 0;
+    if (idx > 0) setBookmarkCharIndex(idx);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, url, history]);
+
+  // Persist TTS bookmark while audio is playing (debounced) and flush on hide/pause.
+  useEffect(() => {
+    if (!user || !url) return;
+    const idx = tts.activeCharIndex;
+    if (!tts.isSpeaking || idx <= 0) return;
+    const baseUrl = computeBaseNovelUrl(url);
+    const t = window.setTimeout(() => {
+      saveTtsBookmark(user.id, baseUrl, idx);
+      setBookmarkCharIndex(idx);
+    }, 2500);
+    return () => window.clearTimeout(t);
+  }, [tts.activeCharIndex, tts.isSpeaking, user, url]);
+
+  // Flush bookmark immediately on pause / tab hide / unload.
+  useEffect(() => {
+    if (!user || !url) return;
+    const flush = () => {
+      const idx = tts.activeCharIndex;
+      if (idx <= 0) return;
+      const baseUrl = computeBaseNovelUrl(url);
+      saveTtsBookmark(user.id, baseUrl, idx);
+      setBookmarkCharIndex(idx);
+    };
+    document.addEventListener('visibilitychange', flush);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', flush);
+      window.removeEventListener('pagehide', flush);
+    };
+  }, [user, url, tts.activeCharIndex]);
+
+  // Flush right after pausing so the marker reflects the latest spoken word.
+  useEffect(() => {
+    if (!tts.isPaused || !user || !url) return;
+    const idx = tts.activeCharIndex;
+    if (idx <= 0) return;
+    const baseUrl = computeBaseNovelUrl(url);
+    saveTtsBookmark(user.id, baseUrl, idx);
+    setBookmarkCharIndex(idx);
+  }, [tts.isPaused, tts.activeCharIndex, user, url]);
+
+  // When a chapter is rendered and a meaningful bookmark exists, prompt resume.
+  useEffect(() => {
+    if (!displayText || bookmarkCharIndex < 200) return;
+    if (bookmarkPromptShownRef.current === url) return;
+    if (bookmarkCharIndex >= displayText.length - 20) return;
+    bookmarkPromptShownRef.current = url;
+    if (autoReadRef.current) {
+      setTimeout(() => tts.speak(displayText, bookmarkCharIndex), 500);
+      toast.success('Retomando de onde o leitor parou', { duration: 4000 });
+    } else {
+      toast('Última pausa do leitor encontrada', {
+        description: 'Continuar a leitura a partir desse ponto?',
+        duration: 8000,
+        action: {
+          label: 'Continuar',
+          onClick: () => tts.speak(displayText, bookmarkCharIndex),
+        },
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayText, bookmarkCharIndex, url]);
+
+  const loadChapter = async (chapterUrl: string, opts?: { restoreScroll?: { pos: number; pct: number }; ttsCharIndex?: number }) => {
     // Cancel any in-flight translation
     if (abortRef.current) {
       abortRef.current.abort();
@@ -351,6 +451,8 @@ const Index = () => {
     window.scrollTo({ top: 0, behavior: 'instant' });
     restoredScrollRef.current = false;
     pendingScrollRestoreRef.current = opts?.restoreScroll ?? null;
+    setBookmarkCharIndex(Math.max(0, Math.round(opts?.ttsCharIndex ?? 0)));
+    bookmarkPromptShownRef.current = null;
 
     setIsLoading(true);
     setIsTranslating(false);
@@ -605,6 +707,7 @@ const Index = () => {
         pos: Number(h.scroll_position) || 0,
         pct: Number(h.scroll_percent) || 0,
       },
+      ttsCharIndex: Number(h.tts_char_index) || 0,
     });
   };
 
@@ -1296,6 +1399,8 @@ const Index = () => {
               isSpeaking={tts.isSpeaking}
               onClickWord={(charIndex) => tts.speakFromIndex(displayText, charIndex)}
               fontSize={fontSize}
+              bookmarkCharIndex={bookmarkCharIndex}
+              onResumeBookmark={(idx) => tts.speakFromIndex(displayText, idx)}
             />
 
             {/* Nav */}
@@ -1359,7 +1464,11 @@ const Index = () => {
                     }
                     toast.info("Iniciando leitura...", { duration: 2000 });
                     try {
-                      await tts.speak(displayText);
+                      if (bookmarkCharIndex > 200 && bookmarkCharIndex < displayText.length - 20) {
+                        await tts.speak(displayText, bookmarkCharIndex);
+                      } else {
+                        await tts.speak(displayText);
+                      }
                     } catch (err: any) {
                       toast.error("Erro ao iniciar leitura", {
                         description: err?.message || "Erro desconhecido",

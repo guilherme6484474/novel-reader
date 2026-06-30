@@ -105,16 +105,35 @@ export async function saveScrollPosition(
   baseNovelUrl: string,
   scrollPosition: number,
   scrollPercent: number,
+  ttsCharIndex?: number,
 ) {
+  const update: Record<string, number> = {
+    scroll_position: Math.max(0, Math.round(scrollPosition)),
+    scroll_percent: Math.max(0, Math.min(1, scrollPercent)),
+  };
+  if (typeof ttsCharIndex === 'number' && ttsCharIndex >= 0) {
+    update.tts_char_index = Math.round(ttsCharIndex);
+  }
   const { error } = await supabase
     .from('reading_history')
-    .update({
-      scroll_position: Math.max(0, Math.round(scrollPosition)),
-      scroll_percent: Math.max(0, Math.min(1, scrollPercent)),
-    })
+    .update(update)
     .eq('user_id', userId)
     .eq('novel_url', baseNovelUrl);
   if (error) console.error('Error saving scroll position:', error);
+}
+
+/** Persist only the TTS bookmark (where the audio reader paused). */
+export async function saveTtsBookmark(
+  userId: string,
+  baseNovelUrl: string,
+  ttsCharIndex: number,
+) {
+  const { error } = await supabase
+    .from('reading_history')
+    .update({ tts_char_index: Math.max(0, Math.round(ttsCharIndex)) })
+    .eq('user_id', userId)
+    .eq('novel_url', baseNovelUrl);
+  if (error) console.error('Error saving TTS bookmark:', error);
 }
 
 /** Compute base novel URL the same way saveReadingProgress does (kept in sync). */
