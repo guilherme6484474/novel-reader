@@ -13,7 +13,7 @@ import { getCachedTranslation, setCachedTranslation, clearTranslationCache } fro
 import {
   saveReadingProgress, getReadingHistory, deleteReadingEntry,
   getDeletedHistory, restoreReadingEntry, purgeReadingEntry, purgeOldDeleted,
-  saveScrollPosition, computeBaseNovelUrl,
+  saveScrollPosition, saveTtsBookmark, computeBaseNovelUrl,
 } from "@/lib/api/reading-history";
 import { updateMediaSessionMetadata } from "@/lib/keep-awake";
 import { useAuth } from "@/contexts/AuthContext";
@@ -22,7 +22,7 @@ import {
   BookOpen, ChevronLeft, ChevronRight, Globe, Loader2,
   Pause, Play, Square, Volume2, Settings2, Search,
   LogIn, LogOut, History, X, Trash2, Minus, Plus, Type,
-  RefreshCw, Download, BarChart3, Mic, Undo2, ArchiveRestore,
+  RefreshCw, Download, BarChart3, Mic, Undo2, ArchiveRestore, Bookmark,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
@@ -51,6 +51,7 @@ type HistoryEntry = {
   deleted_at?: string | null;
   scroll_position?: number | null;
   scroll_percent?: number | null;
+  tts_char_index?: number | null;
 };
 
 // Component that renders text with word-level highlighting and click-to-read
@@ -60,12 +61,16 @@ const ChapterArticle = memo(function ChapterArticle({
   isSpeaking,
   onClickWord,
   fontSize,
+  bookmarkCharIndex,
+  onResumeBookmark,
 }: {
   displayText: string;
   activeCharIndex: number;
   isSpeaking: boolean;
   onClickWord: (charIndex: number) => void;
   fontSize: number;
+  bookmarkCharIndex: number;
+  onResumeBookmark?: (charIndex: number) => void;
 }) {
   const activeParagraphRef = useRef<HTMLParagraphElement>(null);
   const lastScrolledParagraphRef = useRef(-1);
@@ -133,13 +138,31 @@ const ChapterArticle = memo(function ChapterArticle({
   const prevParaCount = prevParaCountRef.current;
   useEffect(() => { prevParaCountRef.current = paragraphs.length; }, [paragraphs.length]);
 
+  const bookmarkParagraphIndex = useMemo(() => {
+    if (bookmarkCharIndex <= 0) return -1;
+    return paragraphs.findIndex((p) =>
+      bookmarkCharIndex >= p.globalStart && bookmarkCharIndex < p.globalEnd
+    );
+  }, [bookmarkCharIndex, paragraphs]);
+
   return (
     <article style={{ fontFamily: 'var(--font-reading)', fontSize: `${fontSize}px` }}>
       {paragraphs.map((para, pi) => (
+        <div key={pi}>
+          {pi === bookmarkParagraphIndex && (!isSpeaking || activeParagraphIndex !== bookmarkParagraphIndex) && (
+            <button
+              type="button"
+              onClick={() => onResumeBookmark?.(bookmarkCharIndex)}
+              className="group/bm flex items-center gap-2 mb-2 mt-1 px-2.5 py-1 rounded-md border border-primary/40 bg-primary/5 hover:bg-primary/10 text-primary text-[11px] font-medium tracking-wide uppercase transition-colors animate-fade-in"
+              title="Continuar leitura deste ponto"
+            >
+              <Bookmark className="h-3 w-3 fill-primary/30" />
+              Última pausa do leitor — clique para continuar
+            </button>
+          )}
         <p
-          key={pi}
           ref={pi === activeParagraphIndex ? activeParagraphRef : undefined}
-          className={`mb-4 leading-[1.85] text-foreground/85 ${pi >= prevParaCount ? 'animate-fade-in' : ''}`}
+          className={`mb-4 leading-[1.85] text-foreground/85 ${pi === bookmarkParagraphIndex ? 'border-l-2 border-primary/50 pl-3 -ml-3' : ''} ${pi >= prevParaCount ? 'animate-fade-in' : ''}`}
         >
           {para.tokens.map((token, wi) => {
             if (!token.isWord) return <span key={wi}>{token.text}</span>;
@@ -167,6 +190,7 @@ const ChapterArticle = memo(function ChapterArticle({
             );
           })}
         </p>
+        </div>
       ))}
     </article>
   );
