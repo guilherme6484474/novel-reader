@@ -23,6 +23,10 @@ export async function saveReadingProgress(
         // Reset scroll on new chapter load; will be updated as user scrolls
         scroll_position: 0,
         scroll_percent: 0,
+        // Reset TTS bookmark on new chapter load; will be updated as TTS plays.
+        // Without this, the previous chapter's char index persists on the same
+        // base novel_url row and would auto-resume the new chapter mid-text.
+        tts_char_index: 0,
         // Restoring from trash if user re-opens a deleted novel
         deleted_at: null,
       },
