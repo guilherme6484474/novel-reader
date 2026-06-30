@@ -181,6 +181,38 @@ async function googleTranslate(text: string, targetLang: string): Promise<string
 }
 
 /**
+ * Stream Google/Lingva/MyMemory translation chunk-by-chunk to the client so the
+ * user sees progress instead of staring at 0% until the full chapter is done.
+ */
+async function googleTranslateStream(
+  text: string,
+  targetLang: string,
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  encoder: TextEncoder,
+): Promise<void> {
+  const tl = toLangCode(targetLang);
+  const chunks = splitIntoChunks(text, 4500);
+  for (let i = 0; i < chunks.length; i++) {
+    const { text: t } = await translateChunkWithFallback(chunks[i], tl);
+    const piece = (i === 0 ? '' : '\n\n') + t;
+    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: piece })}\n\n`));
+  }
+}
+
+// ----- AI availability cache (module-level, lives per warm instance) -----
+// When the Lovable AI Gateway returns 402 (no credits) or 429 (rate-limited),
+// skip AI for a short window so we don't waste ~500ms per request waiting for
+// a guaranteed failure. The client gets the Google fallback immediately.
+let aiUnavailableUntil = 0;
+function aiIsKnownDown(): boolean {
+  return Date.now() < aiUnavailableUntil;
+}
+function markAiDown(reason: string, ttlMs = 5 * 60_000) {
+  aiUnavailableUntil = Date.now() + ttlMs;
+  console.warn(`AI gateway marked unavailable for ${Math.round(ttlMs / 1000)}s — ${reason}`);
+}
+
+/**
  * Try AI translation (streaming). Returns null if it fails (e.g. 402 no credits).
  */
 async function tryAITranslationStream(
@@ -191,6 +223,12 @@ async function tryAITranslationStream(
 ): Promise<boolean> {
   const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
   if (!LOVABLE_API_KEY) return false;
+  if (aiIsKnownDown()) {
+    console.log("Skipping AI (recently failed) — going straight to Google fallback");
+    return false;
+  }
+
+  let emittedAny = false;
 
   for (let i = 0; i < chunks.length; i++) {
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -222,6 +260,14 @@ Rules:
     if (!response.ok) {
       const errText = await response.text();
       console.error(`AI error chunk ${i}:`, response.status, errText);
+      if (response.status === 402 || response.status === 429) {
+        markAiDown(`HTTP ${response.status}`);
+      }
+      // If we already streamed some AI output for earlier chunks, signal a
+      // reset so the client wipes the partial text before Google re-does it.
+      if (emittedAny) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: "", fallback: "google", reset: true })}\n\n`));
+      }
       return false; // Signal failure so we can fallback
     }
 
@@ -229,27 +275,36 @@ Rules:
     const decoder = new TextDecoder();
     let buffer = '';
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
 
-      let newlineIdx;
-      while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
-        let line = buffer.slice(0, newlineIdx);
-        buffer = buffer.slice(newlineIdx + 1);
-        if (line.endsWith('\r')) line = line.slice(0, -1);
-        if (!line.startsWith('data: ')) continue;
-        const jsonStr = line.slice(6).trim();
-        if (jsonStr === '[DONE]') continue;
-        try {
-          const parsed = JSON.parse(jsonStr);
-          const content = parsed.choices?.[0]?.delta?.content;
-          if (content) {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: content })}\n\n`));
-          }
-        } catch { /* skip partial JSON */ }
+        let newlineIdx;
+        while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
+          let line = buffer.slice(0, newlineIdx);
+          buffer = buffer.slice(newlineIdx + 1);
+          if (line.endsWith('\r')) line = line.slice(0, -1);
+          if (!line.startsWith('data: ')) continue;
+          const jsonStr = line.slice(6).trim();
+          if (jsonStr === '[DONE]') continue;
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const content = parsed.choices?.[0]?.delta?.content;
+            if (content) {
+              emittedAny = true;
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: content })}\n\n`));
+            }
+          } catch { /* skip partial JSON */ }
+        }
       }
+    } catch (streamErr) {
+      console.error(`AI stream broke on chunk ${i}:`, streamErr);
+      if (emittedAny) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: "", fallback: "google", reset: true })}\n\n`));
+      }
+      return false;
     }
 
     if (i < chunks.length - 1) {
@@ -308,11 +363,9 @@ serve(async (req) => {
           if (!aiSuccess) {
             // Fallback to Google Translate (non-streaming, send as single chunk)
             console.log('AI failed, falling back to Google Translate');
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: "", fallback: "google" })}\n\n`));
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: "", fallback: "google", reset: true })}\n\n`));
 
-            const translated = await googleTranslate(text, targetLanguage);
-            // Send the full translation as a single data event
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: translated })}\n\n`));
+            await googleTranslateStream(text, targetLanguage, controller, encoder);
             console.log('Google Translate fallback complete');
           }
 
