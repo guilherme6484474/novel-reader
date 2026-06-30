@@ -1465,7 +1465,7 @@ const Index = () => {
                     toast.info("Iniciando leitura...", { duration: 2000 });
                     try {
                       if (bookmarkCharIndex > 200 && bookmarkCharIndex < displayText.length - 20) {
-                        await tts.speakFromIndex(displayText, bookmarkCharIndex);
+                        await tts.speak(displayText, bookmarkCharIndex);
                       } else {
                         await tts.speak(displayText);
                       }
