@@ -425,7 +425,7 @@ const Index = () => {
     if (bookmarkCharIndex >= displayText.length - 20) return;
     bookmarkPromptShownRef.current = url;
     if (autoReadRef.current) {
-      setTimeout(() => tts.speakFromIndex(displayText, bookmarkCharIndex), 500);
+      setTimeout(() => tts.speak(displayText, bookmarkCharIndex), 500);
       toast.success('Retomando de onde o leitor parou', { duration: 4000 });
     } else {
       toast('Última pausa do leitor encontrada', {
@@ -433,7 +433,7 @@ const Index = () => {
         duration: 8000,
         action: {
           label: 'Continuar',
-          onClick: () => tts.speakFromIndex(displayText, bookmarkCharIndex),
+          onClick: () => tts.speak(displayText, bookmarkCharIndex),
         },
       });
     }
