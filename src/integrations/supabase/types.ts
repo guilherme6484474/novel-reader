@@ -254,6 +254,7 @@ export type Database = {
           novel_url: string
           scroll_percent: number
           scroll_position: number
+          tts_char_index: number
           user_id: string
         }
         Insert: {
@@ -266,6 +267,7 @@ export type Database = {
           novel_url: string
           scroll_percent?: number
           scroll_position?: number
+          tts_char_index?: number
           user_id: string
         }
         Update: {
@@ -278,6 +280,7 @@ export type Database = {
           novel_url?: string
           scroll_percent?: number
           scroll_position?: number
+          tts_char_index?: number
           user_id?: string
         }
         Relationships: []
