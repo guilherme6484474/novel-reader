@@ -71,8 +71,9 @@ export async function translateChapterStream(
       try {
         const parsed = JSON.parse(jsonStr);
         if (parsed.error) throw new Error(parsed.error);
-        // When Google fallback activates, clear any partial AI text
-        if (parsed.fallback === "google" && onReset) {
+        // Server signals that previously streamed text should be wiped
+        // (e.g. AI failed mid-stream and Google is about to re-translate).
+        if ((parsed.reset || parsed.fallback === "google") && onReset) {
           onReset();
         }
         if (parsed.text) onDelta(parsed.text);
