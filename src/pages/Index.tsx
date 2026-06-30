@@ -218,6 +218,8 @@ const Index = () => {
   const [trash, setTrash] = useState<HistoryEntry[]>([]);
   const pendingScrollRestoreRef = useRef<{ pos: number; pct: number } | null>(null);
   const restoredScrollRef = useRef(false);
+  const [bookmarkCharIndex, setBookmarkCharIndex] = useState(0);
+  const bookmarkPromptShownRef = useRef<string | null>(null);
   const [autoRead, setAutoRead] = useState(() => localStorage.getItem('nr-autoRead') === 'true');
   const autoReadRef = useRef(autoRead);
   const tts = useTTS();
@@ -364,7 +366,7 @@ const Index = () => {
     }
   }, [user]);
 
-  const loadChapter = async (chapterUrl: string, opts?: { restoreScroll?: { pos: number; pct: number } }) => {
+  const loadChapter = async (chapterUrl: string, opts?: { restoreScroll?: { pos: number; pct: number }; ttsCharIndex?: number }) => {
     // Cancel any in-flight translation
     if (abortRef.current) {
       abortRef.current.abort();
@@ -375,6 +377,8 @@ const Index = () => {
     window.scrollTo({ top: 0, behavior: 'instant' });
     restoredScrollRef.current = false;
     pendingScrollRestoreRef.current = opts?.restoreScroll ?? null;
+    setBookmarkCharIndex(Math.max(0, Math.round(opts?.ttsCharIndex ?? 0)));
+    bookmarkPromptShownRef.current = null;
 
     setIsLoading(true);
     setIsTranslating(false);
@@ -629,6 +633,7 @@ const Index = () => {
         pos: Number(h.scroll_position) || 0,
         pct: Number(h.scroll_percent) || 0,
       },
+      ttsCharIndex: Number(h.tts_char_index) || 0,
     });
   };
 
@@ -1320,6 +1325,8 @@ const Index = () => {
               isSpeaking={tts.isSpeaking}
               onClickWord={(charIndex) => tts.speakFromIndex(displayText, charIndex)}
               fontSize={fontSize}
+              bookmarkCharIndex={bookmarkCharIndex}
+              onResumeBookmark={(idx) => tts.speakFromIndex(displayText, idx)}
             />
 
             {/* Nav */}
