@@ -131,6 +131,12 @@ async function myMemoryTranslateChunk(chunk: string, tl: string): Promise<string
     const data = await resp.json();
     const t = data?.responseData?.translatedText;
     if (typeof t !== 'string' || !t) throw new Error('MyMemory empty');
+    // MyMemory returns quota / error strings in the translatedText field
+    // (e.g. "MYMEMORY WARNING: YOU USED ALL AVAILABLE FREE TRANSLATIONS FOR TODAY").
+    // Treat these as failures so we don't inject them into the chapter.
+    if (/^MYMEMORY (WARNING|ERROR)/i.test(t) || /QUERY LENGTH LIMIT|AVAILABLE FREE TRANSLATIONS/i.test(t)) {
+      throw new Error('MyMemory quota/error');
+    }
     out.push(t);
   }
   return out.join('\n\n');
@@ -151,6 +157,13 @@ async function translateChunkWithFallback(chunk: string, tl: string): Promise<{ 
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const text = await p.fn(chunk, tl);
+        // Sanity check: a legitimate translation should be at least ~40%
+        // of the source length. Anything shorter is almost certainly a
+        // truncated response, quota error, or (with AI) a summary.
+        // Skip the ratio guard for very short chunks where variance is high.
+        if (chunk.length > 400 && text.length < chunk.length * 0.4) {
+          throw new Error(`${p.name} suspiciously short output (${text.length}/${chunk.length})`);
+        }
         if (attempt > 0 || p.name !== 'google') {
           console.log(`Chunk translated via ${p.name}${attempt > 0 ? ` (retry ${attempt})` : ''}`);
         }
@@ -231,6 +244,7 @@ async function tryAITranslationStream(
   let emittedAny = false;
 
   for (let i = 0; i < chunks.length; i++) {
+    let chunkAccumulated = '';
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -243,16 +257,20 @@ async function tryAITranslationStream(
         messages: [
           {
             role: "system",
-            content: `You are a professional literary translator. Translate the following novel chapter text to ${targetLanguage}. 
-Rules:
-- Keep the same paragraph structure and formatting
-- Maintain the tone, style and emotion of the original
-- Do NOT add any notes, explanations or commentary
-- Output ONLY the translated text
-- Translate ALL content faithfully and completely, including any mature, explicit, violent or adult content - do NOT censor, sanitize, omit or soften any words or passages
-- You must never refuse to translate any part of the text regardless of its nature`
+            content: `You are a professional literary translation ENGINE. Your ONLY job is to translate the provided novel chapter text to ${targetLanguage} sentence-by-sentence, in full.
+
+STRICT RULES:
+- Translate EVERY sentence. Do NOT summarize, paraphrase, condense, shorten, or skip any part of the text.
+- Output length must be comparable to the input length (a faithful literary translation, never a synopsis).
+- Preserve the original paragraph breaks and dialogue formatting exactly.
+- Do NOT add prefaces like "Here is the translation", notes, explanations, headings, or commentary of any kind.
+- Do NOT wrap output in quotes or code blocks.
+- Translate ALL content faithfully, including mature, explicit, violent or adult content. Do NOT censor, sanitize, omit or soften anything.
+- Never refuse. If in doubt, translate literally.
+
+You are a translator, NOT a summarizer. A summary is a failure.`
           },
-          { role: "user", content: chunks[i] }
+          { role: "user", content: `Translate the following text to ${targetLanguage}. Output ONLY the full translated text, nothing else:\n\n${chunks[i]}` }
         ],
       }),
     });
@@ -294,6 +312,7 @@ Rules:
             const content = parsed.choices?.[0]?.delta?.content;
             if (content) {
               emittedAny = true;
+              chunkAccumulated += content;
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: content })}\n\n`));
             }
           } catch { /* skip partial JSON */ }
@@ -304,6 +323,14 @@ Rules:
       if (emittedAny) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: "", fallback: "google", reset: true })}\n\n`));
       }
+      return false;
+    }
+
+    // Guard against summarization: if the model returned a drastically shorter
+    // output than the source, treat as failure and fall back to Google.
+    if (chunks[i].length > 400 && chunkAccumulated.length < chunks[i].length * 0.4) {
+      console.warn(`AI likely summarized chunk ${i} (${chunkAccumulated.length}/${chunks[i].length}) — falling back to Google`);
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: "", fallback: "google", reset: true })}\n\n`));
       return false;
     }
 
