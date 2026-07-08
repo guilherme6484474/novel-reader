@@ -341,6 +341,33 @@ const Index = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Warm up Kokoro in the background when it's the user's preferred engine
+  // (or when they've selected a Kokoro voice). Downloading the ~85MB model
+  // ahead of time makes the first read start almost instantly.
+  useEffect(() => {
+    const engine = getTTSEngine();
+    const voiceIsKokoro = (localStorage.getItem('nr-ttsVoice') || '').includes('Kokoro');
+    if (engine !== 'kokoro' && !voiceIsKokoro) return;
+
+    let handle: number | null = null;
+    const kick = () => {
+      import('@/lib/kokoro-tts').then(m => m.preloadKokoro()).catch(() => {});
+    };
+    if (typeof (window as any).requestIdleCallback === 'function') {
+      handle = (window as any).requestIdleCallback(kick, { timeout: 4000 });
+    } else {
+      handle = window.setTimeout(kick, 2000);
+    }
+    return () => {
+      if (handle == null) return;
+      if (typeof (window as any).cancelIdleCallback === 'function') {
+        (window as any).cancelIdleCallback(handle);
+      } else {
+        clearTimeout(handle);
+      }
+    };
+  }, [ttsEngine]);
+
   // Auto-advance: when TTS ends and autoRead is on, go to next chapter
   useEffect(() => {
     tts.setOnEnd(() => {
