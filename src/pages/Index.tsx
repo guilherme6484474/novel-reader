@@ -582,6 +582,7 @@ const Index = () => {
       let rafId = 0;
       let needsFlush = false;
       const flushText = () => {
+        if (runId !== translationRunRef.current) return;
         setDisplayText(streamedText);
         setTranslationProgress(Math.min(99, Math.round((streamedText.length / originalLength) * 100)));
         needsFlush = false;
@@ -598,6 +599,7 @@ const Index = () => {
         streamedText += delta;
         if (!needsFlush) { needsFlush = true; rafId = requestAnimationFrame(flushText); }
       }, controller.signal, () => {
+        if (runId !== translationRunRef.current) return;
         // Reset callback: AI failed mid-stream, Google will retranslate everything
         streamedText = "";
         cancelAnimationFrame(rafId);
@@ -668,10 +670,12 @@ const Index = () => {
         getCachedTranslation(nextUrl, language).then((cached) => {
           if (!cached) {
             let text = "";
-            translateChapterStream(data.content, language, (delta) => { text += delta; })
+            translateChapterStream(data.content, language, (delta) => { text += delta; }, undefined, () => { text = ""; })
               .then(() => {
-                setCachedTranslation(nextUrl, language, text);
-                console.log("Next chapter pre-translated and cached");
+                if (isUsableTranslation(text, data.content)) {
+                  setCachedTranslation(nextUrl, language, text);
+                  console.log("Next chapter pre-translated and cached");
+                }
               })
               .catch(() => { /* silent - non-critical */ });
           }
@@ -695,7 +699,7 @@ const Index = () => {
     }
     const controller = new AbortController();
     abortRef.current = controller;
-      const runId = ++translationRunRef.current;
+    const runId = ++translationRunRef.current;
 
     setIsTranslating(true);
     tts.stop();
@@ -704,12 +708,17 @@ const Index = () => {
       let streamedText = "";
       let rafId = 0;
       let needsFlush = false;
-      const flushText = () => { setDisplayText(streamedText); needsFlush = false; };
+      const flushText = () => {
+        if (runId !== translationRunRef.current) return;
+        setDisplayText(streamedText);
+        needsFlush = false;
+      };
       await translateChapterStream(chapter.content, language, (delta) => {
         if (runId !== translationRunRef.current) return;
         streamedText += delta;
         if (!needsFlush) { needsFlush = true; rafId = requestAnimationFrame(flushText); }
       }, controller.signal, () => {
+        if (runId !== translationRunRef.current) return;
         streamedText = "";
         cancelAnimationFrame(rafId);
         setDisplayText("");
