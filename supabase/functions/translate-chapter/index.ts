@@ -185,12 +185,21 @@ async function translateChunkWithFallback(chunk: string, tl: string): Promise<{ 
 async function googleTranslate(text: string, targetLang: string): Promise<string> {
   const tl = toLangCode(targetLang);
   const chunks = splitIntoChunks(text, 4500);
-  const out: string[] = [];
-  for (const chunk of chunks) {
-    const { text: t } = await translateChunkWithFallback(chunk, tl);
-    out.push(t);
+  // Translate chunks in parallel (bounded concurrency) — was sequential,
+  // which multiplied latency by chunk count on long chapters.
+  const CONCURRENCY = 4;
+  const results: string[] = new Array(chunks.length);
+  let cursor = 0;
+  async function worker() {
+    while (true) {
+      const i = cursor++;
+      if (i >= chunks.length) return;
+      const { text: t } = await translateChunkWithFallback(chunks[i], tl);
+      results[i] = t;
+    }
   }
-  return out.join('\n\n');
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, chunks.length) }, worker));
+  return results.join('\n\n');
 }
 
 /**
@@ -205,11 +214,29 @@ async function googleTranslateStream(
 ): Promise<void> {
   const tl = toLangCode(targetLang);
   const chunks = splitIntoChunks(text, 4500);
-  for (let i = 0; i < chunks.length; i++) {
-    const { text: t } = await translateChunkWithFallback(chunks[i], tl);
-    const piece = (i === 0 ? '' : '\n\n') + t;
-    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: piece })}\n\n`));
+  // Translate chunks in parallel and emit them in order as soon as each
+  // prefix is ready. Users see progress much faster on long chapters.
+  const CONCURRENCY = 4;
+  const results: (string | null)[] = new Array(chunks.length).fill(null);
+  let nextToEmit = 0;
+  const emitReady = () => {
+    while (nextToEmit < chunks.length && results[nextToEmit] !== null) {
+      const piece = (nextToEmit === 0 ? '' : '\n\n') + results[nextToEmit]!;
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: piece })}\n\n`));
+      nextToEmit++;
+    }
+  };
+  let cursor = 0;
+  async function worker() {
+    while (true) {
+      const i = cursor++;
+      if (i >= chunks.length) return;
+      const { text: t } = await translateChunkWithFallback(chunks[i], tl);
+      results[i] = t;
+      emitReady();
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, chunks.length) }, worker));
 }
 
 // ----- AI availability cache (module-level, lives per warm instance) -----
