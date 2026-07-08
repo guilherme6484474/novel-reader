@@ -41,6 +41,15 @@ const LANGUAGES = [
   { value: "Chinese", label: "🇨🇳 中文" },
 ];
 
+function isUsableTranslation(translated: string, source: string): boolean {
+  const text = translated.replace(/\s+/g, ' ').trim();
+  const original = source.replace(/\s+/g, ' ').trim();
+  if (!text) return false;
+  if (/^MYMEMORY (WARNING|ERROR)/i.test(text) || /AVAILABLE FREE TRANSLATIONS/i.test(text)) return false;
+  if (original.length > 400 && text.length < original.length * 0.25) return false;
+  return true;
+}
+
 type HistoryEntry = {
   id: string;
   novel_url: string;
@@ -235,6 +244,7 @@ const Index = () => {
   const chapterRef = useRef<ChapterData | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const prefetchedRef = useRef<{ url: string; data: ChapterData } | null>(null);
+  const translationRunRef = useRef(0);
 
   // Keep refs in sync
   useEffect(() => { autoReadRef.current = autoRead; }, [autoRead]);
@@ -547,7 +557,7 @@ const Index = () => {
 
       // Check cache first
       const cached = await getCachedTranslation(chapterUrl, language);
-      if (cached) {
+      if (cached && isUsableTranslation(cached, data.content)) {
         console.log("Translation loaded from cache");
         setDisplayText(cached);
         setTranslationProgress(100);
@@ -563,6 +573,7 @@ const Index = () => {
       // Translate with abort support
       const controller = new AbortController();
       abortRef.current = controller;
+      const runId = ++translationRunRef.current;
       const originalLength = data.content.length;
 
       setIsTranslating(true);
@@ -583,6 +594,7 @@ const Index = () => {
       };
 
       translateChapterStream(data.content, language, (delta) => {
+        if (runId !== translationRunRef.current) return;
         streamedText += delta;
         if (!needsFlush) { needsFlush = true; rafId = requestAnimationFrame(flushText); }
       }, controller.signal, () => {
@@ -594,7 +606,13 @@ const Index = () => {
         toast.info("Motor de IA indisponível, usando Google Translate...", { duration: 3000 });
       })
         .then(() => {
+          if (runId !== translationRunRef.current) return;
           cancelAnimationFrame(rafId);
+          if (!isUsableTranslation(streamedText, data.content)) {
+            setDisplayText(data.content);
+            setTranslationProgress(0);
+            throw new Error("A tradução terminou sem texto utilizável.");
+          }
           setDisplayText(streamedText);
           setTranslationProgress(100);
           setCachedTranslation(chapterUrl, language, streamedText);
@@ -609,7 +627,9 @@ const Index = () => {
           prefetchNextChapter(data.nextChapterUrl);
         })
         .catch((err: any) => {
+          if (runId !== translationRunRef.current) return;
           if (err.name === 'AbortError') return;
+          if (streamedText.trim().length === 0) setDisplayText(data.content);
           toast.error("Erro na tradução", {
             description: err.message,
             action: {
@@ -675,6 +695,7 @@ const Index = () => {
     }
     const controller = new AbortController();
     abortRef.current = controller;
+      const runId = ++translationRunRef.current;
 
     setIsTranslating(true);
     tts.stop();
@@ -685,6 +706,7 @@ const Index = () => {
       let needsFlush = false;
       const flushText = () => { setDisplayText(streamedText); needsFlush = false; };
       await translateChapterStream(chapter.content, language, (delta) => {
+        if (runId !== translationRunRef.current) return;
         streamedText += delta;
         if (!needsFlush) { needsFlush = true; rafId = requestAnimationFrame(flushText); }
       }, controller.signal, () => {
@@ -692,7 +714,12 @@ const Index = () => {
         cancelAnimationFrame(rafId);
         setDisplayText("");
       });
+      if (runId !== translationRunRef.current) return;
       cancelAnimationFrame(rafId);
+      if (!isUsableTranslation(streamedText, chapter.content)) {
+        setDisplayText(chapter.content);
+        throw new Error("A tradução terminou sem texto utilizável.");
+      }
       setDisplayText(streamedText);
       // Update cache with new translation
       const currentUrl = url;
