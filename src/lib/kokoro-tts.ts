@@ -104,3 +104,12 @@ export async function fetchKokoroTtsAudio(opts: {
 export function isKokoroLoaded(): boolean {
   return ttsPromise !== null;
 }
+
+/**
+ * Kick off the Kokoro pipeline download/initialization in the background.
+ * Safe to call multiple times — the singleton promise is reused. Errors are
+ * swallowed so a failed preload never surfaces as an unhandled rejection.
+ */
+export function preloadKokoro(): void {
+  void getPipeline().catch(() => { /* silent — the next real call will retry */ });
+}
