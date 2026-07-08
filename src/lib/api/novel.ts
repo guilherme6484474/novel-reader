@@ -54,6 +54,7 @@ export async function translateChapterStream(
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let receivedText = false;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -67,7 +68,12 @@ export async function translateChapterStream(
       if (line.endsWith("\r")) line = line.slice(0, -1);
       if (!line.startsWith("data: ")) continue;
       const jsonStr = line.slice(6).trim();
-      if (jsonStr === "[DONE]") return;
+      if (jsonStr === "[DONE]") {
+        if (!receivedText) {
+          throw new Error("A tradução terminou sem retornar texto.");
+        }
+        return;
+      }
       try {
         const parsed = JSON.parse(jsonStr);
         if (parsed.error) throw new Error(parsed.error);
@@ -76,10 +82,18 @@ export async function translateChapterStream(
         if ((parsed.reset || parsed.fallback === "google") && onReset) {
           onReset();
         }
-        if (parsed.text) onDelta(parsed.text);
+        if (typeof parsed.text === "string" && parsed.text.length > 0) {
+          receivedText = true;
+          onDelta(parsed.text);
+        }
       } catch (e) {
-        if (e instanceof Error && e.message.startsWith("Translation")) throw e;
+        if (e instanceof SyntaxError) continue;
+        throw e;
       }
     }
+  }
+
+  if (!receivedText) {
+    throw new Error("A tradução terminou sem retornar texto.");
   }
 }
