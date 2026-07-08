@@ -1,9 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
-};
+import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 
 /**
  * Map human-readable language names to ISO codes (used by all providers).
@@ -50,7 +46,34 @@ function splitIntoChunks(text: string, maxChunk: number): string[] {
   const paragraphs = text.split('\n\n');
   const chunks: string[] = [];
   let current = '';
+
+  const pushHardSplit = (value: string) => {
+    let remaining = value.trim();
+    while (remaining.length > maxChunk) {
+      let splitAt = remaining.lastIndexOf('\n', maxChunk);
+      if (splitAt <= maxChunk * 0.5) splitAt = remaining.lastIndexOf('. ', maxChunk);
+      if (splitAt <= maxChunk * 0.5) splitAt = remaining.lastIndexOf('! ', maxChunk);
+      if (splitAt <= maxChunk * 0.5) splitAt = remaining.lastIndexOf('? ', maxChunk);
+      if (splitAt <= maxChunk * 0.5) splitAt = remaining.lastIndexOf(', ', maxChunk);
+      if (splitAt <= maxChunk * 0.5) splitAt = remaining.lastIndexOf(' ', maxChunk);
+      if (splitAt <= 0) splitAt = maxChunk;
+
+      chunks.push(remaining.slice(0, splitAt).trim());
+      remaining = remaining.slice(splitAt).trim();
+    }
+    if (remaining) chunks.push(remaining);
+  };
+
   for (const p of paragraphs) {
+    if (p.length > maxChunk) {
+      if (current) {
+        chunks.push(current);
+        current = '';
+      }
+      pushHardSplit(p);
+      continue;
+    }
+
     if ((current + '\n\n' + p).length > maxChunk && current) {
       chunks.push(current);
       current = p;
@@ -122,7 +145,7 @@ async function lingvaTranslateChunk(chunk: string, tl: string): Promise<string> 
 // (langpair=auto|xx returns 414/400). We assume English as source — the vast majority
 // of scraped novels are English translations.
 async function myMemoryTranslateChunk(chunk: string, tl: string): Promise<string> {
-  const small = splitIntoChunks(chunk, 450);
+  const small = splitIntoChunks(chunk, 350);
   const out: string[] = [];
   for (const s of small) {
     const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(s)}&langpair=en|${encodeURIComponent(tl)}`;
@@ -371,7 +394,7 @@ You are a translator, NOT a summarizer. A summary is a failure.`
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response('ok', { headers: corsHeaders });
   }
 
   try {
@@ -386,25 +409,7 @@ serve(async (req) => {
 
     console.log(`Translating ${text.length} chars to ${targetLanguage} (streaming)`);
 
-    // Split text into chunks
-    const MAX_CHUNK = 4000;
-    const chunks: string[] = [];
-
-    if (text.length <= MAX_CHUNK) {
-      chunks.push(text);
-    } else {
-      const paragraphs = text.split('\n\n');
-      let current = '';
-      for (const p of paragraphs) {
-        if ((current + '\n\n' + p).length > MAX_CHUNK && current) {
-          chunks.push(current);
-          current = p;
-        } else {
-          current = current ? current + '\n\n' + p : p;
-        }
-      }
-      if (current) chunks.push(current);
-    }
+    const chunks = splitIntoChunks(text, 3200);
 
     // Stream response using SSE
     const encoder = new TextEncoder();
