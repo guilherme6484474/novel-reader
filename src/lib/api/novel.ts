@@ -158,7 +158,7 @@ export async function translateChapter(text: string, targetLanguage: string): Pr
   return data.translatedText;
 }
 
-export async function translateChapterStream(
+async function translateChapterViaEdgeStream(
   text: string,
   targetLanguage: string,
   onDelta: (chunk: string) => void,
@@ -236,5 +236,22 @@ export async function translateChapterStream(
   if (!receivedText) {
     if (onReset) onReset();
     await translateDirectFromBrowser(text, targetLanguage, onDelta, signal);
+  }
+}
+
+export async function translateChapterStream(
+  text: string,
+  targetLanguage: string,
+  onDelta: (chunk: string) => void,
+  signal?: AbortSignal,
+  onReset?: () => void,
+): Promise<void> {
+  try {
+    await translateDirectFromBrowser(text, targetLanguage, onDelta, signal);
+    return;
+  } catch (directError) {
+    if (signal?.aborted) throw directError;
+    if (onReset) onReset();
+    await translateChapterViaEdgeStream(text, targetLanguage, onDelta, signal, onReset);
   }
 }
