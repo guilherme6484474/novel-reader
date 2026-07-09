@@ -567,7 +567,9 @@ const Index = () => {
         if (autoReadRef.current) {
           setTimeout(() => tts.speak(cached), 300);
         }
-        // Prefetch next chapter
+        // Prefetch next chapter HTML only. Translating in the background was
+        // competing with the active chapter and triggering rate limits, making
+        // the visible translation much slower or incomplete.
         prefetchNextChapter(data.nextChapterUrl);
         return;
       }
@@ -627,7 +629,8 @@ const Index = () => {
           if (autoReadRef.current) {
             setTimeout(() => tts.speak(streamedText), 300);
           }
-          // Prefetch next chapter
+          // Prefetch next chapter HTML only; do not pre-translate in the
+          // background because the free translation endpoints throttle quickly.
           prefetchNextChapter(data.nextChapterUrl);
         })
         .catch((err: any) => {
@@ -659,7 +662,8 @@ const Index = () => {
     }
   };
 
-  // Prefetch next chapter in background
+  // Prefetch next chapter HTML in background. Translation happens only when the
+  // user opens the chapter, so active reading never competes with hidden jobs.
   const prefetchNextChapter = (nextUrl: string | undefined) => {
     if (!nextUrl) return;
     // Don't prefetch if already prefetched
@@ -668,20 +672,6 @@ const Index = () => {
       .then((data) => {
         prefetchedRef.current = { url: nextUrl, data };
         console.log("Next chapter prefetched:", data.title);
-        // Also pre-translate to cache if not already cached
-        getCachedTranslation(nextUrl, language).then((cached) => {
-          if (!cached) {
-            let text = "";
-            translateChapterStream(data.content, language, (delta) => { text += delta; }, undefined, () => { text = ""; })
-              .then(() => {
-                if (isUsableTranslation(text, data.content)) {
-                  setCachedTranslation(nextUrl, language, text);
-                  console.log("Next chapter pre-translated and cached");
-                }
-              })
-              .catch(() => { /* silent - non-critical */ });
-          }
-        });
       })
       .catch(() => { /* silent - non-critical */ });
   };
