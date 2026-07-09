@@ -177,7 +177,7 @@ async function translateChunkWithFallback(chunk: string, tl: string): Promise<{ 
   ];
   let lastErr: unknown;
   for (const p of providers) {
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const text = await p.fn(chunk, tl);
         // Sanity check: a legitimate translation should be at least ~40%
@@ -193,9 +193,14 @@ async function translateChunkWithFallback(chunk: string, tl: string): Promise<{ 
         return { text, provider: p.name };
       } catch (e) {
         lastErr = e;
-        console.warn(`Provider ${p.name} attempt ${attempt + 1} failed:`, e instanceof Error ? e.message : e);
-        // small backoff
-        await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn(`Provider ${p.name} attempt ${attempt + 1} failed:`, msg);
+        // Larger exponential backoff with jitter — free providers throttle
+        // aggressively; hammering them makes it worse.
+        const is429 = /429|403|quota|rate/i.test(msg);
+        const base = is429 ? 1500 : 400;
+        const wait = base * Math.pow(2, attempt) + Math.floor(Math.random() * 400);
+        await new Promise((r) => setTimeout(r, wait));
       }
     }
   }
@@ -208,9 +213,8 @@ async function translateChunkWithFallback(chunk: string, tl: string): Promise<{ 
 async function googleTranslate(text: string, targetLang: string): Promise<string> {
   const tl = toLangCode(targetLang);
   const chunks = splitIntoChunks(text, 4500);
-  // Translate chunks in parallel (bounded concurrency) — was sequential,
-  // which multiplied latency by chunk count on long chapters.
-  const CONCURRENCY = 4;
+  // Low concurrency: free providers rate-limit HARD when hit in parallel.
+  const CONCURRENCY = 2;
   const results: string[] = new Array(chunks.length);
   let cursor = 0;
   async function worker() {
@@ -237,9 +241,9 @@ async function googleTranslateStream(
 ): Promise<void> {
   const tl = toLangCode(targetLang);
   const chunks = splitIntoChunks(text, 4500);
-  // Translate chunks in parallel and emit them in order as soon as each
-  // prefix is ready. Users see progress much faster on long chapters.
-  const CONCURRENCY = 4;
+  // Low concurrency: parallel calls to Google/Lingva/MyMemory trigger 429/403
+  // for every worker at once and kill the whole stream. Keep it gentle.
+  const CONCURRENCY = 2;
   const results: (string | null)[] = new Array(chunks.length).fill(null);
   let nextToEmit = 0;
   const emitReady = () => {
@@ -254,8 +258,15 @@ async function googleTranslateStream(
     while (true) {
       const i = cursor++;
       if (i >= chunks.length) return;
-      const { text: t } = await translateChunkWithFallback(chunks[i], tl);
-      results[i] = t;
+      try {
+        const { text: t } = await translateChunkWithFallback(chunks[i], tl);
+        results[i] = t;
+      } catch (e) {
+        console.error(`All providers failed for chunk ${i}, using original text:`, e instanceof Error ? e.message : e);
+        // Keep the reader flowing: emit original text for this chunk so the
+        // whole chapter doesn't get wiped just because free APIs throttled us.
+        results[i] = chunks[i];
+      }
       emitReady();
     }
   }
