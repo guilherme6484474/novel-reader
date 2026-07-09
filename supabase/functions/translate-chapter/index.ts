@@ -258,8 +258,15 @@ async function googleTranslateStream(
     while (true) {
       const i = cursor++;
       if (i >= chunks.length) return;
-      const { text: t } = await translateChunkWithFallback(chunks[i], tl);
-      results[i] = t;
+      try {
+        const { text: t } = await translateChunkWithFallback(chunks[i], tl);
+        results[i] = t;
+      } catch (e) {
+        console.error(`All providers failed for chunk ${i}, using original text:`, e instanceof Error ? e.message : e);
+        // Keep the reader flowing: emit original text for this chunk so the
+        // whole chapter doesn't get wiped just because free APIs throttled us.
+        results[i] = chunks[i];
+      }
       emitReady();
     }
   }
