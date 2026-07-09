@@ -178,7 +178,6 @@ async function translateChapterViaEdgeStream(
   });
 
   if (!resp.ok || !resp.body) {
-    const errData = await resp.text();
     throw new Error(`Translation failed: ${resp.status}`);
   }
 
