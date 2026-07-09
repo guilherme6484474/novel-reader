@@ -45,6 +45,7 @@ function isUsableTranslation(translated: string, source: string): boolean {
   const text = translated.replace(/\s+/g, ' ').trim();
   const original = source.replace(/\s+/g, ' ').trim();
   if (!text) return false;
+  if (original.length > 120 && text === original) return false;
   if (/^MYMEMORY (WARNING|ERROR)/i.test(text) || /AVAILABLE FREE TRANSLATIONS/i.test(text)) return false;
   if (original.length > 400 && text.length < original.length * 0.25) return false;
   return true;
@@ -604,12 +605,13 @@ const Index = () => {
         if (!needsFlush) { needsFlush = true; rafId = requestAnimationFrame(flushText); }
       }, controller.signal, () => {
         if (runId !== translationRunRef.current) return;
-        // Reset callback: AI failed mid-stream, Google will retranslate everything
+        // Reset callback: the server returned nothing/original text, so the
+        // browser uses a direct translation route from the user's connection.
         streamedText = "";
         cancelAnimationFrame(rafId);
         setDisplayText("");
         setTranslationProgress(0);
-        toast.info("Motor de IA indisponível, usando Google Translate...", { duration: 3000 });
+        toast.info("Usando rota alternativa de tradução...", { duration: 3000 });
       })
         .then(() => {
           if (runId !== translationRunRef.current) return;

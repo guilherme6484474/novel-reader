@@ -7,6 +7,137 @@ export type ChapterData = {
   prevChapterUrl: string;
 };
 
+function toLangCode(targetLang: string): string {
+  const langMap: Record<string, string> = {
+    'portuguese (brazilian)': 'pt',
+    portuguese: 'pt',
+    english: 'en',
+    spanish: 'es',
+    french: 'fr',
+    german: 'de',
+    italian: 'it',
+    japanese: 'ja',
+    korean: 'ko',
+    chinese: 'zh-CN',
+  };
+  return langMap[targetLang.toLowerCase()] || targetLang.slice(0, 2).toLowerCase();
+}
+
+function splitIntoChunks(text: string, maxChunk = 1400): string[] {
+  const paragraphs = text.split('\n\n');
+  const chunks: string[] = [];
+  let current = '';
+
+  const pushHardSplit = (value: string) => {
+    let remaining = value.trim();
+    while (remaining.length > maxChunk) {
+      let splitAt = remaining.lastIndexOf('. ', maxChunk);
+      if (splitAt <= maxChunk * 0.5) splitAt = remaining.lastIndexOf('! ', maxChunk);
+      if (splitAt <= maxChunk * 0.5) splitAt = remaining.lastIndexOf('? ', maxChunk);
+      if (splitAt <= maxChunk * 0.5) splitAt = remaining.lastIndexOf(', ', maxChunk);
+      if (splitAt <= maxChunk * 0.5) splitAt = remaining.lastIndexOf(' ', maxChunk);
+      if (splitAt <= 0) splitAt = maxChunk;
+      chunks.push(remaining.slice(0, splitAt).trim());
+      remaining = remaining.slice(splitAt).trim();
+    }
+    if (remaining) chunks.push(remaining);
+  };
+
+  for (const p of paragraphs) {
+    if (p.length > maxChunk) {
+      if (current) {
+        chunks.push(current);
+        current = '';
+      }
+      pushHardSplit(p);
+      continue;
+    }
+
+    if (current && `${current}\n\n${p}`.length > maxChunk) {
+      chunks.push(current);
+      current = p;
+    } else {
+      current = current ? `${current}\n\n${p}` : p;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+function normalizeText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function looksUntranslated(translated: string, source: string, targetLanguage: string): boolean {
+  const out = normalizeText(translated);
+  const src = normalizeText(source);
+  if (!out) return true;
+  if (src.length > 120 && out === src) return true;
+  if (!targetLanguage.toLowerCase().startsWith('english') && src.length > 400 && out.length < src.length * 0.25) return true;
+  return false;
+}
+
+async function googleTranslateDirectChunk(chunk: string, tl: string, signal?: AbortSignal): Promise<string> {
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(tl)}&dt=t&q=${encodeURIComponent(chunk)}`;
+  const resp = await fetch(url, { signal });
+  if (!resp.ok) throw new Error(`Google direto falhou (${resp.status})`);
+  const data = await resp.json();
+  let out = '';
+  if (Array.isArray(data) && Array.isArray(data[0])) {
+    for (const seg of data[0]) if (Array.isArray(seg) && seg[0]) out += seg[0];
+  }
+  if (!out) throw new Error('Google direto retornou vazio');
+  return out;
+}
+
+async function translateDirectFromBrowser(
+  text: string,
+  targetLanguage: string,
+  onDelta: (chunk: string) => void,
+  signal?: AbortSignal,
+): Promise<string> {
+  const tl = toLangCode(targetLanguage);
+  const chunks = splitIntoChunks(text, 1400);
+  const results: (string | null)[] = new Array(chunks.length).fill(null);
+  let nextToEmit = 0;
+  let cursor = 0;
+  let accumulated = '';
+
+  const emitReady = () => {
+    while (nextToEmit < chunks.length && results[nextToEmit] !== null) {
+      const piece = (nextToEmit === 0 ? '' : '\n\n') + results[nextToEmit]!;
+      accumulated += piece;
+      onDelta(piece);
+      nextToEmit++;
+    }
+  };
+
+  async function worker() {
+    while (true) {
+      const i = cursor++;
+      if (i >= chunks.length) return;
+      let lastErr: unknown;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          results[i] = await googleTranslateDirectChunk(chunks[i], tl, signal);
+          emitReady();
+          break;
+        } catch (err) {
+          lastErr = err;
+          if (attempt === 0) await new Promise((r) => setTimeout(r, 350));
+        }
+      }
+      if (results[i] === null) throw lastErr instanceof Error ? lastErr : new Error('Tradução direta falhou');
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(3, chunks.length) }, worker));
+  if (looksUntranslated(accumulated, text, targetLanguage)) {
+    throw new Error('A rota alternativa também retornou texto sem tradução.');
+  }
+  return accumulated;
+}
+
 export async function scrapeChapter(url: string): Promise<ChapterData> {
   const { data, error } = await supabase.functions.invoke('scrape-chapter', {
     body: { url },
@@ -55,6 +186,7 @@ export async function translateChapterStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let receivedText = false;
+  let accumulated = "";
 
   while (true) {
     const { done, value } = await reader.read();
@@ -70,7 +202,14 @@ export async function translateChapterStream(
       const jsonStr = line.slice(6).trim();
       if (jsonStr === "[DONE]") {
         if (!receivedText) {
-          throw new Error("A tradução terminou sem retornar texto.");
+          if (onReset) onReset();
+          await translateDirectFromBrowser(text, targetLanguage, onDelta, signal);
+          return;
+        }
+        if (looksUntranslated(accumulated, text, targetLanguage)) {
+          if (onReset) onReset();
+          await translateDirectFromBrowser(text, targetLanguage, onDelta, signal);
+          return;
         }
         return;
       }
@@ -84,6 +223,7 @@ export async function translateChapterStream(
         }
         if (typeof parsed.text === "string" && parsed.text.length > 0) {
           receivedText = true;
+          accumulated += parsed.text;
           onDelta(parsed.text);
         }
       } catch (e) {
@@ -94,6 +234,7 @@ export async function translateChapterStream(
   }
 
   if (!receivedText) {
-    throw new Error("A tradução terminou sem retornar texto.");
+    if (onReset) onReset();
+    await translateDirectFromBrowser(text, targetLanguage, onDelta, signal);
   }
 }
