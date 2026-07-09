@@ -203,6 +203,17 @@ function trimChapterContent(content: string, title: string, hostname: string): s
       .trim();
   }
 
+  if (hostname.includes('freewebnovel')) {
+    trimmed = trimmed
+      // FreeWebNovel often appends its reader/footer controls after the real
+      // prose. If this chrome is translated, users see a long delay followed by
+      // junk like "1 / 1 Home Info Add Library" at the end of the chapter.
+      .replace(/\n\s*<\s*\n\s*Chapter\s+\d+[\s\S]*$/i, '')
+      .replace(/\n{2,}\s*Chapter\s+\d+\s*[–-][\s\S]*?\n\s*1\s*\/\s*1[\s\S]*$/i, '')
+      .replace(/\n{2,}\s*(?:Home|Info|Add|Library)\s*(?:\n|\s)+[\s\S]*$/i, '')
+      .trim();
+  }
+
   return trimmed;
 }
 

@@ -41,6 +41,22 @@ const LANGUAGES = [
   { value: "Chinese", label: "🇨🇳 中文" },
 ];
 
+function sourceOverlapRatio(translated: string, source: string): number {
+  const sourceWords = source
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .match(/[a-z]{4,}/g);
+  if (!sourceWords || sourceWords.length < 80) return 0;
+  const translatedWords = new Set(
+    translated
+      .toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .match(/[a-z]{4,}/g) || []
+  );
+  const sample = sourceWords.slice(0, 450);
+  return sample.filter((word) => translatedWords.has(word)).length / sample.length;
+}
+
 function isUsableTranslation(translated: string, source: string): boolean {
   const text = translated.replace(/\s+/g, ' ').trim();
   const original = source.replace(/\s+/g, ' ').trim();
@@ -48,6 +64,7 @@ function isUsableTranslation(translated: string, source: string): boolean {
   if (original.length > 120 && text === original) return false;
   if (/^MYMEMORY (WARNING|ERROR)/i.test(text) || /AVAILABLE FREE TRANSLATIONS/i.test(text)) return false;
   if (original.length > 400 && text.length < original.length * 0.25) return false;
+  if (original.length > 1200 && sourceOverlapRatio(text, original) > 0.58) return false;
   return true;
 }
 

@@ -68,18 +68,44 @@ function normalizeText(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
 
+function sourceOverlapRatio(translated: string, source: string): number {
+  const sourceWords = source
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .match(/[a-z]{4,}/g);
+  if (!sourceWords || sourceWords.length < 80) return 0;
+
+  const sample = sourceWords.slice(0, 450);
+  const translatedWords = new Set(
+    translated
+      .toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .match(/[a-z]{4,}/g) || []
+  );
+  if (translatedWords.size === 0) return 0;
+
+  const matches = sample.filter((word) => translatedWords.has(word)).length;
+  return matches / sample.length;
+}
+
 function looksUntranslated(translated: string, source: string, targetLanguage: string): boolean {
   const out = normalizeText(translated);
   const src = normalizeText(source);
   if (!out) return true;
   if (src.length > 120 && out === src) return true;
   if (!targetLanguage.toLowerCase().startsWith('english') && src.length > 400 && out.length < src.length * 0.25) return true;
+  if (!targetLanguage.toLowerCase().startsWith('english') && src.length > 1200 && sourceOverlapRatio(out, src) > 0.58) return true;
   return false;
 }
 
 async function googleTranslateDirectChunk(chunk: string, tl: string, signal?: AbortSignal): Promise<string> {
-  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(tl)}&dt=t&q=${encodeURIComponent(chunk)}`;
-  const resp = await fetch(url, { signal });
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(tl)}&dt=t`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `q=${encodeURIComponent(chunk)}`,
+    signal,
+  });
   if (!resp.ok) throw new Error(`Google direto falhou (${resp.status})`);
   const data = await resp.json();
   let out = '';
@@ -97,11 +123,12 @@ async function translateDirectFromBrowser(
   signal?: AbortSignal,
 ): Promise<string> {
   const tl = toLangCode(targetLanguage);
-  const chunks = splitIntoChunks(text, 1400);
+  const chunks = splitIntoChunks(text, 1800);
   const results: (string | null)[] = new Array(chunks.length).fill(null);
   let nextToEmit = 0;
   let cursor = 0;
   let accumulated = '';
+  let failed = false;
 
   const emitReady = () => {
     while (nextToEmit < chunks.length && results[nextToEmit] !== null) {
@@ -114,24 +141,33 @@ async function translateDirectFromBrowser(
 
   async function worker() {
     while (true) {
+      if (failed) return;
       const i = cursor++;
       if (i >= chunks.length) return;
       let lastErr: unknown;
-      for (let attempt = 0; attempt < 2; attempt++) {
+      for (let attempt = 0; attempt < 3; attempt++) {
         try {
           results[i] = await googleTranslateDirectChunk(chunks[i], tl, signal);
+          if (looksUntranslated(results[i] || '', chunks[i], targetLanguage)) {
+            throw new Error('Google direto retornou texto sem tradução');
+          }
+          if (failed) return;
           emitReady();
           break;
         } catch (err) {
           lastErr = err;
-          if (attempt === 0) await new Promise((r) => setTimeout(r, 350));
+          if (signal?.aborted) throw err;
+          if (attempt < 2) await new Promise((r) => setTimeout(r, attempt === 0 ? 450 : 1100));
         }
       }
-      if (results[i] === null) throw lastErr instanceof Error ? lastErr : new Error('Tradução direta falhou');
+      if (results[i] === null) {
+        failed = true;
+        throw lastErr instanceof Error ? lastErr : new Error('Tradução direta falhou');
+      }
     }
   }
 
-  await Promise.all(Array.from({ length: Math.min(3, chunks.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(2, chunks.length) }, worker));
   if (looksUntranslated(accumulated, text, targetLanguage)) {
     throw new Error('A rota alternativa também retornou texto sem tradução.');
   }
@@ -149,13 +185,9 @@ export async function scrapeChapter(url: string): Promise<ChapterData> {
 }
 
 export async function translateChapter(text: string, targetLanguage: string): Promise<string> {
-  const { data, error } = await supabase.functions.invoke('translate-chapter', {
-    body: { text, targetLanguage },
-  });
-
-  if (error) throw new Error(error.message || 'Translation failed');
-  if (data.error) throw new Error(data.error);
-  return data.translatedText;
+  let translated = '';
+  await translateChapterStream(text, targetLanguage, (delta) => { translated += delta; });
+  return translated;
 }
 
 async function translateChapterViaEdgeStream(
@@ -164,7 +196,8 @@ async function translateChapterViaEdgeStream(
   onDelta: (chunk: string) => void,
   signal?: AbortSignal,
   onReset?: () => void,
-): Promise<void> {
+  useAI = false,
+): Promise<string> {
   const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/translate-chapter`;
   const resp = await fetch(url, {
     method: "POST",
@@ -173,7 +206,7 @@ async function translateChapterViaEdgeStream(
       apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
       Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
     },
-    body: JSON.stringify({ text, targetLanguage }),
+    body: JSON.stringify({ text, targetLanguage, useAI }),
     signal,
   });
 
@@ -186,6 +219,8 @@ async function translateChapterViaEdgeStream(
   let buffer = "";
   let receivedText = false;
   let accumulated = "";
+  let hadProviderWarning = false;
+  let providerWarning = "";
 
   while (true) {
     const { done, value } = await reader.read();
@@ -202,19 +237,21 @@ async function translateChapterViaEdgeStream(
       if (jsonStr === "[DONE]") {
         if (!receivedText) {
           if (onReset) onReset();
-          await translateDirectFromBrowser(text, targetLanguage, onDelta, signal);
-          return;
+          return await translateDirectFromBrowser(text, targetLanguage, onDelta, signal);
         }
-        if (looksUntranslated(accumulated, text, targetLanguage)) {
-          if (onReset) onReset();
-          await translateDirectFromBrowser(text, targetLanguage, onDelta, signal);
-          return;
+        if (hadProviderWarning || looksUntranslated(accumulated, text, targetLanguage)) {
+          throw new Error(providerWarning || 'A tradução retornou texto sem tradução suficiente.');
         }
-        return;
+        return accumulated;
       }
       try {
         const parsed = JSON.parse(jsonStr);
         if (parsed.error) throw new Error(parsed.error);
+        if (parsed.warning) {
+          hadProviderWarning = true;
+          providerWarning = String(parsed.warning);
+          console.warn('Translation warning:', parsed.warning);
+        }
         // Server signals that previously streamed text should be wiped
         // (e.g. AI failed mid-stream and Google is about to re-translate).
         if ((parsed.reset || parsed.fallback === "google") && onReset) {
@@ -234,8 +271,14 @@ async function translateChapterViaEdgeStream(
 
   if (!receivedText) {
     if (onReset) onReset();
-    await translateDirectFromBrowser(text, targetLanguage, onDelta, signal);
+    return await translateDirectFromBrowser(text, targetLanguage, onDelta, signal);
   }
+
+  if (looksUntranslated(accumulated, text, targetLanguage)) {
+    throw new Error('A tradução retornou texto sem tradução suficiente.');
+  }
+
+  return accumulated;
 }
 
 export async function translateChapterStream(
@@ -251,6 +294,14 @@ export async function translateChapterStream(
   } catch (directError) {
     if (signal?.aborted) throw directError;
     if (onReset) onReset();
-    await translateChapterViaEdgeStream(text, targetLanguage, onDelta, signal, onReset);
+
+    try {
+      await translateChapterViaEdgeStream(text, targetLanguage, onDelta, signal, onReset, false);
+      return;
+    } catch (freeEdgeError) {
+      if (signal?.aborted) throw freeEdgeError;
+      if (onReset) onReset();
+      await translateChapterViaEdgeStream(text, targetLanguage, onDelta, signal, onReset, true);
+    }
   }
 }

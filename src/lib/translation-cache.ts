@@ -13,7 +13,7 @@ const MAX_ENTRIES = 200;
 // from novelbin before the script-stripping fix).
 // Bump when translation output format or provider fallback changes to
 // invalidate cached entries that may contain summaries / quota-error strings.
-const CACHE_VERSION = "v4";
+const CACHE_VERSION = "v5";
 
 interface CacheEntry {
   key: string;
