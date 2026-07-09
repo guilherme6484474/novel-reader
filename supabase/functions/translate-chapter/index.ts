@@ -120,6 +120,7 @@ async function googleTranslateChunk(chunk: string, tl: string): Promise<string> 
 const LINGVA_INSTANCES = [
   'https://lingva.lunar.icu',
   'https://translate.plausibility.cloud',
+  'https://lingva.ml',
 ];
 async function lingvaTranslateChunk(chunk: string, tl: string): Promise<string> {
   let lastErr: unknown;
@@ -173,7 +174,7 @@ async function myMemoryTranslateChunk(chunk: string, tl: string): Promise<string
 async function translateChunkWithFallback(chunk: string, tl: string): Promise<{ text: string; provider: string }> {
   let lastErr: unknown;
 
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const text = await googleTranslateChunk(chunk, tl);
       if (chunk.length > 400 && text.length < chunk.length * 0.35) {
@@ -185,8 +186,9 @@ async function translateChunkWithFallback(chunk: string, tl: string): Promise<{ 
       lastErr = e;
       const msg = e instanceof Error ? e.message : String(e);
       console.warn(`Provider google attempt ${attempt + 1} failed:`, msg);
-      if (attempt === 0) {
-        await new Promise((r) => setTimeout(r, /429|403|quota|rate/i.test(msg) ? 700 : 250));
+      if (attempt < 2) {
+        const delay = /429|403|quota|rate/i.test(msg) ? 900 + attempt * 900 : 250 + attempt * 350;
+        await new Promise((r) => setTimeout(r, delay));
       }
     }
   }
@@ -208,7 +210,7 @@ async function translateChunkWithFallback(chunk: string, tl: string): Promise<{ 
   }
 
   // MyMemory is quota-limited and very small; use only for tiny tail chunks.
-  if (chunk.length <= 700) {
+  if (chunk.length <= 500) {
     try {
       const text = await myMemoryTranslateChunk(chunk, tl);
       console.log('Chunk translated via mymemory');
@@ -227,10 +229,10 @@ async function translateChunkWithFallback(chunk: string, tl: string): Promise<{ 
  */
 async function googleTranslate(text: string, targetLang: string): Promise<string> {
   const tl = toLangCode(targetLang);
-  const chunks = splitIntoChunks(text, 4500);
+  const chunks = splitIntoChunks(text, 2200);
   // Keep active translation gentle; background pre-translation was removed from
   // the client, so two workers are fast enough without triggering 429 storms.
-  const CONCURRENCY = 2;
+  const CONCURRENCY = 3;
   const results: string[] = new Array(chunks.length);
   let cursor = 0;
   async function worker() {
@@ -261,12 +263,14 @@ async function googleTranslateStream(
   encoder: TextEncoder,
 ): Promise<void> {
   const tl = toLangCode(targetLang);
-  const chunks = splitIntoChunks(text, 4500);
+  const chunks = splitIntoChunks(text, 2200);
   // Keep it gentle enough for the unofficial/free endpoints while still showing
   // the first translated text quickly.
-  const CONCURRENCY = 2;
+  const CONCURRENCY = 3;
   const results: (string | null)[] = new Array(chunks.length).fill(null);
+  const providers: string[] = new Array(chunks.length);
   let nextToEmit = 0;
+  let fallbackChunks = 0;
   const emitReady = () => {
     while (nextToEmit < chunks.length && results[nextToEmit] !== null) {
       const piece = (nextToEmit === 0 ? '' : '\n\n') + results[nextToEmit]!;
@@ -280,18 +284,25 @@ async function googleTranslateStream(
       const i = cursor++;
       if (i >= chunks.length) return;
       try {
-        const { text: t } = await translateChunkWithFallback(chunks[i], tl);
+        const { text: t, provider } = await translateChunkWithFallback(chunks[i], tl);
+        providers[i] = provider;
         results[i] = t;
       } catch (e) {
         console.error(`All providers failed for chunk ${i}, using original text:`, e instanceof Error ? e.message : e);
         // Keep the reader flowing: emit original text for this chunk so the
         // whole chapter doesn't get wiped just because free APIs throttled us.
+        fallbackChunks++;
+        providers[i] = 'original';
         results[i] = chunks[i];
       }
       emitReady();
     }
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, chunks.length) }, worker));
+
+  if (fallbackChunks > 0) {
+    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ warning: `${fallbackChunks}/${chunks.length} trechos não foram traduzidos pelos provedores gratuitos.` })}\n\n`));
+  }
 }
 
 // ----- AI availability cache (module-level, lives per warm instance) -----
@@ -441,7 +452,7 @@ serve(async (req) => {
 
     console.log(`Translating ${text.length} chars to ${targetLanguage} (streaming)`);
 
-    const chunks = splitIntoChunks(text, 3200);
+    const chunks = splitIntoChunks(text, 2600);
 
     // Stream response using SSE
     const encoder = new TextEncoder();
