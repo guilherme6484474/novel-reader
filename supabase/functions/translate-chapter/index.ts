@@ -85,7 +85,7 @@ function splitIntoChunks(text: string, maxChunk: number): string[] {
   return chunks;
 }
 
-async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 15000): Promise<Response> {
+async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 10000): Promise<Response> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -105,7 +105,7 @@ async function googleTranslateChunk(chunk: string, tl: string): Promise<string> 
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
-  }, 20000);
+  }, 12000);
   if (!resp.ok) throw new Error(`Google ${resp.status}`);
   const data = await resp.json();
   let out = '';
@@ -120,8 +120,6 @@ async function googleTranslateChunk(chunk: string, tl: string): Promise<string> 
 const LINGVA_INSTANCES = [
   'https://lingva.lunar.icu',
   'https://translate.plausibility.cloud',
-  'https://lingva.garudalinux.org',
-  'https://lingva.ml',
 ];
 async function lingvaTranslateChunk(chunk: string, tl: string): Promise<string> {
   let lastErr: unknown;
@@ -130,7 +128,7 @@ async function lingvaTranslateChunk(chunk: string, tl: string): Promise<string> 
       const url = `${base}/api/v1/auto/${encodeURIComponent(tl)}/${encodeURIComponent(chunk)}`;
       const resp = await fetchWithTimeout(url, {
         headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
-      }, 15000);
+      }, 3000);
       if (!resp.ok) throw new Error(`Lingva ${resp.status}`);
       const data = await resp.json();
       const out = data?.translation;
@@ -149,7 +147,7 @@ async function myMemoryTranslateChunk(chunk: string, tl: string): Promise<string
   const out: string[] = [];
   for (const s of small) {
     const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(s)}&langpair=en|${encodeURIComponent(tl)}`;
-    const resp = await fetchWithTimeout(url, {}, 15000);
+    const resp = await fetchWithTimeout(url, {}, 5000);
     if (!resp.ok) throw new Error(`MyMemory ${resp.status}`);
     const data = await resp.json();
     const t = data?.responseData?.translatedText;
@@ -166,44 +164,61 @@ async function myMemoryTranslateChunk(chunk: string, tl: string): Promise<string
 }
 
 /**
- * Translate one chunk trying providers in order, with one retry each.
- * Throws only if every provider fails.
+ * Translate one chunk with a fast path first. The previous implementation did
+ * long exponential backoffs across several free providers; when one provider was
+ * throttled, a chapter could stall for tens of seconds. This keeps the active
+ * reader fast: Google gets one quick retry, then lightweight fallbacks, then the
+ * original chunk is emitted by the caller instead of freezing the UI.
  */
 async function translateChunkWithFallback(chunk: string, tl: string): Promise<{ text: string; provider: string }> {
-  const providers: Array<{ name: string; fn: (c: string, l: string) => Promise<string> }> = [
-    { name: 'google', fn: googleTranslateChunk },
-    { name: 'lingva', fn: lingvaTranslateChunk },
-    { name: 'mymemory', fn: myMemoryTranslateChunk },
-  ];
   let lastErr: unknown;
-  for (const p of providers) {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const text = await p.fn(chunk, tl);
-        // Sanity check: a legitimate translation should be at least ~40%
-        // of the source length. Anything shorter is almost certainly a
-        // truncated response, quota error, or (with AI) a summary.
-        // Skip the ratio guard for very short chunks where variance is high.
-        if (chunk.length > 400 && text.length < chunk.length * 0.4) {
-          throw new Error(`${p.name} suspiciously short output (${text.length}/${chunk.length})`);
-        }
-        if (attempt > 0 || p.name !== 'google') {
-          console.log(`Chunk translated via ${p.name}${attempt > 0 ? ` (retry ${attempt})` : ''}`);
-        }
-        return { text, provider: p.name };
-      } catch (e) {
-        lastErr = e;
-        const msg = e instanceof Error ? e.message : String(e);
-        console.warn(`Provider ${p.name} attempt ${attempt + 1} failed:`, msg);
-        // Larger exponential backoff with jitter — free providers throttle
-        // aggressively; hammering them makes it worse.
-        const is429 = /429|403|quota|rate/i.test(msg);
-        const base = is429 ? 1500 : 400;
-        const wait = base * Math.pow(2, attempt) + Math.floor(Math.random() * 400);
-        await new Promise((r) => setTimeout(r, wait));
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const text = await googleTranslateChunk(chunk, tl);
+      if (chunk.length > 400 && text.length < chunk.length * 0.35) {
+        throw new Error(`google suspiciously short output (${text.length}/${chunk.length})`);
+      }
+      if (attempt > 0) console.log('Chunk translated via google retry');
+      return { text, provider: 'google' };
+    } catch (e) {
+      lastErr = e;
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`Provider google attempt ${attempt + 1} failed:`, msg);
+      if (attempt === 0) {
+        await new Promise((r) => setTimeout(r, /429|403|quota|rate/i.test(msg) ? 700 : 250));
       }
     }
   }
+
+  // Lingva uses URL path params, so keep it for small chunks only; otherwise it
+  // becomes slower than showing the user the original text while they retry.
+  if (chunk.length <= 1800) {
+    try {
+      const text = await lingvaTranslateChunk(chunk, tl);
+      if (chunk.length > 400 && text.length < chunk.length * 0.35) {
+        throw new Error(`lingva suspiciously short output (${text.length}/${chunk.length})`);
+      }
+      console.log('Chunk translated via lingva');
+      return { text, provider: 'lingva' };
+    } catch (e) {
+      lastErr = e;
+      console.warn('Provider lingva failed:', e instanceof Error ? e.message : e);
+    }
+  }
+
+  // MyMemory is quota-limited and very small; use only for tiny tail chunks.
+  if (chunk.length <= 700) {
+    try {
+      const text = await myMemoryTranslateChunk(chunk, tl);
+      console.log('Chunk translated via mymemory');
+      return { text, provider: 'mymemory' };
+    } catch (e) {
+      lastErr = e;
+      console.warn('Provider mymemory failed:', e instanceof Error ? e.message : e);
+    }
+  }
+
   throw lastErr ?? new Error('All translation providers failed');
 }
 
@@ -213,7 +228,8 @@ async function translateChunkWithFallback(chunk: string, tl: string): Promise<{ 
 async function googleTranslate(text: string, targetLang: string): Promise<string> {
   const tl = toLangCode(targetLang);
   const chunks = splitIntoChunks(text, 4500);
-  // Low concurrency: free providers rate-limit HARD when hit in parallel.
+  // Keep active translation gentle; background pre-translation was removed from
+  // the client, so two workers are fast enough without triggering 429 storms.
   const CONCURRENCY = 2;
   const results: string[] = new Array(chunks.length);
   let cursor = 0;
@@ -221,8 +237,13 @@ async function googleTranslate(text: string, targetLang: string): Promise<string
     while (true) {
       const i = cursor++;
       if (i >= chunks.length) return;
-      const { text: t } = await translateChunkWithFallback(chunks[i], tl);
-      results[i] = t;
+      try {
+        const { text: t } = await translateChunkWithFallback(chunks[i], tl);
+        results[i] = t;
+      } catch (e) {
+        console.error(`All providers failed for chunk ${i}, using original text:`, e instanceof Error ? e.message : e);
+        results[i] = chunks[i];
+      }
     }
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, chunks.length) }, worker));
@@ -241,8 +262,8 @@ async function googleTranslateStream(
 ): Promise<void> {
   const tl = toLangCode(targetLang);
   const chunks = splitIntoChunks(text, 4500);
-  // Low concurrency: parallel calls to Google/Lingva/MyMemory trigger 429/403
-  // for every worker at once and kill the whole stream. Keep it gentle.
+  // Keep it gentle enough for the unofficial/free endpoints while still showing
+  // the first translated text quickly.
   const CONCURRENCY = 2;
   const results: (string | null)[] = new Array(chunks.length).fill(null);
   let nextToEmit = 0;
@@ -409,7 +430,7 @@ serve(async (req) => {
   }
 
   try {
-    const { text, targetLanguage } = await req.json();
+    const { text, targetLanguage, useAI = false } = await req.json();
 
     if (!text || !targetLanguage) {
       return new Response(
@@ -427,13 +448,18 @@ serve(async (req) => {
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          // Try AI first
-          const aiSuccess = await tryAITranslationStream(chunks, targetLanguage, controller, encoder);
+          // The app defaults to the fast translation path. AI can still be used
+          // explicitly, but current workspace credits may be exhausted; trying it
+          // first caused avoidable delays and reset events for every chapter.
+          const aiSuccess = useAI
+            ? await tryAITranslationStream(chunks, targetLanguage, controller, encoder)
+            : false;
 
           if (!aiSuccess) {
-            // Fallback to Google Translate (non-streaming, send as single chunk)
-            console.log('AI failed, falling back to Google Translate');
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: "", fallback: "google", reset: true })}\n\n`));
+            if (useAI) {
+              console.log('AI failed, falling back to Google Translate');
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: "", fallback: "google", reset: true })}\n\n`));
+            }
 
             await googleTranslateStream(text, targetLanguage, controller, encoder);
             console.log('Google Translate fallback complete');
