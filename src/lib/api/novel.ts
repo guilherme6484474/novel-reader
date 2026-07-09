@@ -289,19 +289,19 @@ export async function translateChapterStream(
   onReset?: () => void,
 ): Promise<void> {
   try {
-    await translateChapterViaEdgeStream(text, targetLanguage, onDelta, signal, onReset, false);
+    await translateDirectFromBrowser(text, targetLanguage, onDelta, signal);
     return;
-  } catch (freeEdgeError) {
-    if (signal?.aborted) throw freeEdgeError;
+  } catch (directError) {
+    if (signal?.aborted) throw directError;
     if (onReset) onReset();
 
     try {
-      await translateChapterViaEdgeStream(text, targetLanguage, onDelta, signal, onReset, true);
+      await translateChapterViaEdgeStream(text, targetLanguage, onDelta, signal, onReset, false);
       return;
-    } catch (aiEdgeError) {
-      if (signal?.aborted) throw aiEdgeError;
+    } catch (freeEdgeError) {
+      if (signal?.aborted) throw freeEdgeError;
       if (onReset) onReset();
-      await translateDirectFromBrowser(text, targetLanguage, onDelta, signal);
+      await translateChapterViaEdgeStream(text, targetLanguage, onDelta, signal, onReset, true);
     }
   }
 }
