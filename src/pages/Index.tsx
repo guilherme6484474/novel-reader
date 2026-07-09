@@ -431,7 +431,9 @@ const Index = () => {
     const baseUrl = computeBaseNovelUrl(url);
     const t = window.setTimeout(() => {
       saveTtsBookmark(user.id, baseUrl, idx);
-      setBookmarkCharIndex(idx);
+      // Do NOT update bookmarkCharIndex here: it would re-trigger the
+      // "resume from bookmark" effect below and jump the reader forward
+      // during live playback (especially on auto-advance to next chapter).
     }, 2500);
     return () => window.clearTimeout(t);
   }, [tts.activeCharIndex, tts.isSpeaking, user, url]);
@@ -444,7 +446,7 @@ const Index = () => {
       if (idx <= 0) return;
       const baseUrl = computeBaseNovelUrl(url);
       saveTtsBookmark(user.id, baseUrl, idx);
-      setBookmarkCharIndex(idx);
+      // Same reason as above: only persist to DB, don't touch state.
     };
     document.addEventListener('visibilitychange', flush);
     window.addEventListener('pagehide', flush);
@@ -461,7 +463,7 @@ const Index = () => {
     if (idx <= 0) return;
     const baseUrl = computeBaseNovelUrl(url);
     saveTtsBookmark(user.id, baseUrl, idx);
-    setBookmarkCharIndex(idx);
+    // Same reason as above: only persist to DB, don't touch state.
   }, [tts.isPaused, tts.activeCharIndex, user, url]);
 
   // When a chapter is rendered and a meaningful bookmark exists, prompt resume.
