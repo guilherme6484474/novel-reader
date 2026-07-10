@@ -14,383 +14,363 @@ export type Database = {
   }
   public: {
     Tables: {
-      nav_community_reports: {
+      estatisticas_mando: {
         Row: {
-          alert_id: string | null
           created_at: string
-          description: string | null
+          derrotas_casa: number
+          derrotas_fora: number
+          empates_casa: number
+          empates_fora: number
+          gols_contra_casa: number
+          gols_contra_fora: number
+          gols_pro_casa: number
+          gols_pro_fora: number
           id: string
-          is_anonymous: boolean
-          latitude: number
-          longitude: number
-          report_type: string
+          jogos_casa: number
+          jogos_fora: number
+          temporada: string
+          time_id: string
+          updated_at: string
+          vitorias_casa: number
+          vitorias_fora: number
+        }
+        Insert: {
+          created_at?: string
+          derrotas_casa?: number
+          derrotas_fora?: number
+          empates_casa?: number
+          empates_fora?: number
+          gols_contra_casa?: number
+          gols_contra_fora?: number
+          gols_pro_casa?: number
+          gols_pro_fora?: number
+          id?: string
+          jogos_casa?: number
+          jogos_fora?: number
+          temporada: string
+          time_id: string
+          updated_at?: string
+          vitorias_casa?: number
+          vitorias_fora?: number
+        }
+        Update: {
+          created_at?: string
+          derrotas_casa?: number
+          derrotas_fora?: number
+          empates_casa?: number
+          empates_fora?: number
+          gols_contra_casa?: number
+          gols_contra_fora?: number
+          gols_pro_casa?: number
+          gols_pro_fora?: number
+          id?: string
+          jogos_casa?: number
+          jogos_fora?: number
+          temporada?: string
+          time_id?: string
+          updated_at?: string
+          vitorias_casa?: number
+          vitorias_fora?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "estatisticas_mando_time_id_fkey"
+            columns: ["time_id"]
+            isOneToOne: false
+            referencedRelation: "times"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      historico_confrontos: {
+        Row: {
+          competicao: string | null
+          created_at: string
+          data: string
+          gols_time_a: number
+          gols_time_b: number
+          id: string
+          time_a_id: string
+          time_b_id: string
+        }
+        Insert: {
+          competicao?: string | null
+          created_at?: string
+          data: string
+          gols_time_a?: number
+          gols_time_b?: number
+          id?: string
+          time_a_id: string
+          time_b_id: string
+        }
+        Update: {
+          competicao?: string | null
+          created_at?: string
+          data?: string
+          gols_time_a?: number
+          gols_time_b?: number
+          id?: string
+          time_a_id?: string
+          time_b_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "historico_confrontos_time_a_id_fkey"
+            columns: ["time_a_id"]
+            isOneToOne: false
+            referencedRelation: "times"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "historico_confrontos_time_b_id_fkey"
+            columns: ["time_b_id"]
+            isOneToOne: false
+            referencedRelation: "times"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      jogos: {
+        Row: {
+          api_football_fixture_id: number | null
+          api_football_league_id: number | null
+          created_at: string
+          data_hora: string
+          estadio: string | null
+          id: string
+          liga: string | null
           status: string
-          title: string
-          user_id: string
+          time_casa_id: string
+          time_visitante_id: string
+          updated_at: string
         }
         Insert: {
-          alert_id?: string | null
+          api_football_fixture_id?: number | null
+          api_football_league_id?: number | null
           created_at?: string
-          description?: string | null
+          data_hora: string
+          estadio?: string | null
           id?: string
-          is_anonymous?: boolean
-          latitude: number
-          longitude: number
-          report_type?: string
+          liga?: string | null
           status?: string
-          title: string
-          user_id: string
+          time_casa_id: string
+          time_visitante_id: string
+          updated_at?: string
         }
         Update: {
-          alert_id?: string | null
+          api_football_fixture_id?: number | null
+          api_football_league_id?: number | null
           created_at?: string
-          description?: string | null
+          data_hora?: string
+          estadio?: string | null
           id?: string
-          is_anonymous?: boolean
-          latitude?: number
-          longitude?: number
-          report_type?: string
+          liga?: string | null
           status?: string
-          title?: string
-          user_id?: string
+          time_casa_id?: string
+          time_visitante_id?: string
+          updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: "nav_community_reports_alert_id_fkey"
-            columns: ["alert_id"]
+            foreignKeyName: "jogos_time_casa_id_fkey"
+            columns: ["time_casa_id"]
             isOneToOne: false
-            referencedRelation: "nav_security_alerts"
+            referencedRelation: "times"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "jogos_time_visitante_id_fkey"
+            columns: ["time_visitante_id"]
+            isOneToOne: false
+            referencedRelation: "times"
             referencedColumns: ["id"]
           },
         ]
       }
-      nav_muted_areas: {
+      jogos_historicos_time: {
         Row: {
-          alert_id: string
+          adversario_id: string | null
+          adversario_nome: string
+          casa_ou_fora: string
+          competicao: string | null
           created_at: string
+          data: string
+          fonte: string
+          gols_contra: number
+          gols_pro: number
           id: string
-          user_id: string
+          resultado: string
+          time_id: string
         }
         Insert: {
-          alert_id: string
+          adversario_id?: string | null
+          adversario_nome: string
+          casa_ou_fora: string
+          competicao?: string | null
           created_at?: string
+          data: string
+          fonte?: string
+          gols_contra?: number
+          gols_pro?: number
           id?: string
-          user_id: string
+          resultado: string
+          time_id: string
         }
         Update: {
-          alert_id?: string
+          adversario_id?: string | null
+          adversario_nome?: string
+          casa_ou_fora?: string
+          competicao?: string | null
           created_at?: string
+          data?: string
+          fonte?: string
+          gols_contra?: number
+          gols_pro?: number
           id?: string
-          user_id?: string
+          resultado?: string
+          time_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: "nav_muted_areas_alert_id_fkey"
-            columns: ["alert_id"]
+            foreignKeyName: "jogos_historicos_time_adversario_id_fkey"
+            columns: ["adversario_id"]
             isOneToOne: false
-            referencedRelation: "nav_security_alerts"
+            referencedRelation: "times"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "jogos_historicos_time_time_id_fkey"
+            columns: ["time_id"]
+            isOneToOne: false
+            referencedRelation: "times"
             referencedColumns: ["id"]
           },
         ]
       }
-      nav_points_of_interest: {
+      odds: {
         Row: {
-          address: string | null
-          category: string
-          created_at: string
+          atualizado_em: string
+          casa_de_apostas: string
           id: string
-          is_24h: boolean
-          latitude: number
-          longitude: number
-          name: string
-          phone: string | null
-          safety_rating: number | null
+          jogo_id: string
+          odd_casa: number
+          odd_empate: number
+          odd_visitante: number
         }
         Insert: {
-          address?: string | null
-          category: string
-          created_at?: string
+          atualizado_em?: string
+          casa_de_apostas: string
           id?: string
-          is_24h?: boolean
-          latitude: number
-          longitude: number
-          name: string
-          phone?: string | null
-          safety_rating?: number | null
+          jogo_id: string
+          odd_casa: number
+          odd_empate: number
+          odd_visitante: number
         }
         Update: {
-          address?: string | null
-          category?: string
-          created_at?: string
+          atualizado_em?: string
+          casa_de_apostas?: string
           id?: string
-          is_24h?: boolean
-          latitude?: number
-          longitude?: number
-          name?: string
-          phone?: string | null
-          safety_rating?: number | null
+          jogo_id?: string
+          odd_casa?: number
+          odd_empate?: number
+          odd_visitante?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "odds_jogo_id_fkey"
+            columns: ["jogo_id"]
+            isOneToOne: false
+            referencedRelation: "jogos"
+            referencedColumns: ["id"]
+          },
+        ]
       }
-      nav_security_alerts: {
+      previsoes: {
         Row: {
-          alert_level: string
-          created_at: string
-          description: string | null
-          expires_at: string | null
+          comparativo: Json | null
+          conselho: string | null
+          criado_em: string
           id: string
-          is_active: boolean
-          latitude: number
-          longitude: number
-          polygon_coordinates: Json | null
-          radius_meters: number
-          source: string
-          title: string
+          jogo_id: string
+          modelo_usado: string
+          prob_casa: number
+          prob_empate: number
+          prob_visitante: number
+        }
+        Insert: {
+          comparativo?: Json | null
+          conselho?: string | null
+          criado_em?: string
+          id?: string
+          jogo_id: string
+          modelo_usado?: string
+          prob_casa: number
+          prob_empate: number
+          prob_visitante: number
+        }
+        Update: {
+          comparativo?: Json | null
+          conselho?: string | null
+          criado_em?: string
+          id?: string
+          jogo_id?: string
+          modelo_usado?: string
+          prob_casa?: number
+          prob_empate?: number
+          prob_visitante?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "previsoes_jogo_id_fkey"
+            columns: ["jogo_id"]
+            isOneToOne: false
+            referencedRelation: "jogos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      times: {
+        Row: {
+          created_at: string
+          estadio: string | null
+          id: string
+          liga: string | null
+          logo_url: string | null
+          nome: string
+          pais: string | null
           updated_at: string
-          verification_count: number
-          verified: boolean
-        }
-        Insert: {
-          alert_level?: string
-          created_at?: string
-          description?: string | null
-          expires_at?: string | null
-          id?: string
-          is_active?: boolean
-          latitude: number
-          longitude: number
-          polygon_coordinates?: Json | null
-          radius_meters?: number
-          source?: string
-          title: string
-          updated_at?: string
-          verification_count?: number
-          verified?: boolean
-        }
-        Update: {
-          alert_level?: string
-          created_at?: string
-          description?: string | null
-          expires_at?: string | null
-          id?: string
-          is_active?: boolean
-          latitude?: number
-          longitude?: number
-          polygon_coordinates?: Json | null
-          radius_meters?: number
-          source?: string
-          title?: string
-          updated_at?: string
-          verification_count?: number
-          verified?: boolean
-        }
-        Relationships: []
-      }
-      nav_user_preferences: {
-        Row: {
-          alert_sensitivity: string
-          created_at: string
-          id: string
-          prefer_safe_routes: boolean
-          sound_alerts: boolean
-          updated_at: string
-          user_id: string
-          visual_alerts: boolean
-        }
-        Insert: {
-          alert_sensitivity?: string
-          created_at?: string
-          id?: string
-          prefer_safe_routes?: boolean
-          sound_alerts?: boolean
-          updated_at?: string
-          user_id: string
-          visual_alerts?: boolean
-        }
-        Update: {
-          alert_sensitivity?: string
-          created_at?: string
-          id?: string
-          prefer_safe_routes?: boolean
-          sound_alerts?: boolean
-          updated_at?: string
-          user_id?: string
-          visual_alerts?: boolean
-        }
-        Relationships: []
-      }
-      profiles: {
-        Row: {
-          created_at: string
-          display_name: string | null
-          id: string
-          updated_at: string
-          user_id: string
         }
         Insert: {
           created_at?: string
-          display_name?: string | null
+          estadio?: string | null
           id?: string
+          liga?: string | null
+          logo_url?: string | null
+          nome: string
+          pais?: string | null
           updated_at?: string
-          user_id: string
         }
         Update: {
           created_at?: string
-          display_name?: string | null
+          estadio?: string | null
           id?: string
+          liga?: string | null
+          logo_url?: string | null
+          nome?: string
+          pais?: string | null
           updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      reading_history: {
-        Row: {
-          chapter_title: string | null
-          chapter_url: string
-          deleted_at: string | null
-          id: string
-          last_read_at: string
-          novel_title: string
-          novel_url: string
-          scroll_percent: number
-          scroll_position: number
-          tts_char_index: number
-          user_id: string
-        }
-        Insert: {
-          chapter_title?: string | null
-          chapter_url: string
-          deleted_at?: string | null
-          id?: string
-          last_read_at?: string
-          novel_title: string
-          novel_url: string
-          scroll_percent?: number
-          scroll_position?: number
-          tts_char_index?: number
-          user_id: string
-        }
-        Update: {
-          chapter_title?: string | null
-          chapter_url?: string
-          deleted_at?: string | null
-          id?: string
-          last_read_at?: string
-          novel_title?: string
-          novel_url?: string
-          scroll_percent?: number
-          scroll_position?: number
-          tts_char_index?: number
-          user_id?: string
-        }
-        Relationships: []
-      }
-      tts_usage: {
-        Row: {
-          characters_count: number
-          created_at: string
-          engine: string
-          id: string
-          lang: string
-          user_id: string | null
-        }
-        Insert: {
-          characters_count?: number
-          created_at?: string
-          engine?: string
-          id?: string
-          lang?: string
-          user_id?: string | null
-        }
-        Update: {
-          characters_count?: number
-          created_at?: string
-          engine?: string
-          id?: string
-          lang?: string
-          user_id?: string | null
-        }
-        Relationships: []
-      }
-      user_roles: {
-        Row: {
-          id: string
-          role: Database["public"]["Enums"]["app_role"]
-          user_id: string
-        }
-        Insert: {
-          id?: string
-          role: Database["public"]["Enums"]["app_role"]
-          user_id: string
-        }
-        Update: {
-          id?: string
-          role?: Database["public"]["Enums"]["app_role"]
-          user_id?: string
         }
         Relationships: []
       }
     }
     Views: {
-      nav_public_community_reports: {
-        Row: {
-          alert_id: string | null
-          created_at: string | null
-          description: string | null
-          id: string | null
-          is_anonymous: boolean | null
-          latitude: number | null
-          longitude: number | null
-          report_type: string | null
-          status: string | null
-          title: string | null
-        }
-        Insert: {
-          alert_id?: string | null
-          created_at?: string | null
-          description?: string | null
-          id?: string | null
-          is_anonymous?: boolean | null
-          latitude?: number | null
-          longitude?: number | null
-          report_type?: string | null
-          status?: string | null
-          title?: string | null
-        }
-        Update: {
-          alert_id?: string | null
-          created_at?: string | null
-          description?: string | null
-          id?: string | null
-          is_anonymous?: boolean | null
-          latitude?: number | null
-          longitude?: number | null
-          report_type?: string | null
-          status?: string | null
-          title?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "nav_community_reports_alert_id_fkey"
-            columns: ["alert_id"]
-            isOneToOne: false
-            referencedRelation: "nav_security_alerts"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
+      [_ in never]: never
     }
     Functions: {
-      has_role: {
-        Args: {
-          _role: Database["public"]["Enums"]["app_role"]
-          _user_id: string
-        }
-        Returns: boolean
-      }
+      [_ in never]: never
     }
     Enums: {
-      app_role: "admin" | "user"
+      [_ in never]: never
     }
     CompositeTypes: {
       [_ in never]: never
@@ -517,8 +497,6 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {
-      app_role: ["admin", "user"],
-    },
+    Enums: {},
   },
 } as const
