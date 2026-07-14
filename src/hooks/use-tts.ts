@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { isNative, getNativeVoices, nativeSpeak, nativeStop, openNativeTtsInstall, runTTSDiagnostics, setDiagError, type TTSDiagnostics } from "@/lib/native-tts";
 import { ttsLog, ttsError } from "@/lib/tts-debug-log";
 import { toast } from "sonner";
-import { acquireWakeLock, releaseWakeLock, setMediaSessionHandlers, updateMediaSessionPlaybackState } from "@/lib/keep-awake";
+import { acquireWakeLock, releaseWakeLock, setMediaSessionHandlers, updateMediaSessionPlaybackState, pauseSilentAudio, resumeSilentAudio } from "@/lib/keep-awake";
 import { startForegroundService, stopForegroundService } from "@/lib/foreground-service";
 
 import { getTTSEngine } from "@/lib/native-tts";
