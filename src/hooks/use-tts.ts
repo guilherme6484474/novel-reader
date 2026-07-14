@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { isNative, getNativeVoices, nativeSpeak, nativeStop, openNativeTtsInstall, runTTSDiagnostics, setDiagError, type TTSDiagnostics } from "@/lib/native-tts";
 import { ttsLog, ttsError } from "@/lib/tts-debug-log";
 import { toast } from "sonner";
-import { acquireWakeLock, releaseWakeLock, setMediaSessionHandlers, updateMediaSessionPlaybackState } from "@/lib/keep-awake";
+import { acquireWakeLock, releaseWakeLock, setMediaSessionHandlers, updateMediaSessionPlaybackState, pauseSilentAudio, resumeSilentAudio } from "@/lib/keep-awake";
 import { startForegroundService, stopForegroundService } from "@/lib/foreground-service";
 
 import { getTTSEngine } from "@/lib/native-tts";
@@ -1026,6 +1026,8 @@ export function useTTS() {
     setIsPaused(true);
     clearWordTimer();
     updateMediaSessionPlaybackState('paused');
+    // Pause silent audio so the OS knows we're truly paused → Bluetooth "play" button works
+    pauseSilentAudio();
 
     // For Edge TTS we can pause the audio element without losing playback position
     const engine = getTTSEngine();
@@ -1050,6 +1052,7 @@ export function useTTS() {
     setIsPaused(false);
     setIsSpeaking(true);
     updateMediaSessionPlaybackState('playing');
+    resumeSilentAudio();
 
     const engine = getTTSEngine();
     if ((engine === 'edge' || engine === 'kokoro') && edgeAudioRef.current && edgeAudioRef.current.src) {

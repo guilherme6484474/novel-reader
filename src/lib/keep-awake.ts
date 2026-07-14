@@ -113,6 +113,28 @@ function stopSilentAudio() {
   ttsLog('[KeepAwake] Silent audio loop stopped');
 }
 
+/**
+ * Pause/resume the silent audio without tearing it down.
+ * Needed so the OS media session correctly reflects paused/playing state,
+ * which is what makes Bluetooth headphone play/pause buttons work.
+ */
+export function pauseSilentAudio() {
+  if (!silentAudioEl) return;
+  try { silentAudioEl.pause(); } catch { /* ignore */ }
+}
+
+export function resumeSilentAudio() {
+  if (!silentAudioEl) {
+    if (silentAudioActive) {
+      // Element was torn down but flag stayed — reset and restart
+      silentAudioActive = false;
+    }
+    startSilentAudio();
+    return;
+  }
+  try { void silentAudioEl.play().catch(() => { /* ignore */ }); } catch { /* ignore */ }
+}
+
 // ─── Web: Media Session API ───
 // Registers the app as a media player so the OS gives it priority
 // and shows lock-screen controls (pause/play/next).
