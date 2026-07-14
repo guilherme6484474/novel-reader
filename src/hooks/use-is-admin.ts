@@ -18,12 +18,12 @@ export function useIsAdmin() {
       return;
     }
 
-    supabase
+    (supabase as any)
       .from('user_roles')
       .select('role')
       .eq('user_id', user.id)
       .eq('role', 'admin')
-      .then(({ data }) => {
+      .then(({ data }: { data: unknown[] | null }) => {
         setIsAdmin(!!data && data.length > 0);
         setLoading(false);
       }, () => {

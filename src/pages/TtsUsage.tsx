@@ -42,7 +42,7 @@ export default function TtsUsage() {
   async function checkAdminAndLoad() {
     try {
       // Check admin role
-      const { data: roles, error: roleErr } = await supabase
+      const { data: roles, error: roleErr } = await (supabase as any)
         .from('user_roles')
         .select('role')
         .eq('user_id', user!.id)
@@ -56,7 +56,7 @@ export default function TtsUsage() {
       setIsAdmin(true);
 
       // Load usage data
-      let query = supabase
+      let query = (supabase as any)
         .from('tts_usage')
         .select('*')
         .order('created_at', { ascending: false });
@@ -71,7 +71,7 @@ export default function TtsUsage() {
 
       const { data, error } = await query.limit(1000);
       if (error) { toast.error("Erro ao carregar dados: " + error.message); return; }
-      setUsage((data as UsageRow[]) || []);
+      setUsage((data as unknown as UsageRow[]) || []);
     } catch (e) {
       toast.error("Erro: " + String(e));
     } finally {
