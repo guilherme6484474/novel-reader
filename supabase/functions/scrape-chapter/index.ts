@@ -1061,7 +1061,17 @@ serve(async (req) => {
     }
 
     // If we still don't have content, fall back to Jina Reader markdown.
-    if (!content || content.length < 100) {
+    // Also try Jina when the HTML extraction returned a suspiciously short
+    // chapter (e.g. proxy returned a partial page), and keep whichever version
+    // is longer. This fixes cases like freewebnovel where CORS proxies
+    // sometimes truncate the response mid-chapter.
+    const looksTruncated = !!content && content.length < 3500 && (
+      hostname.includes('freewebnovel') ||
+      hostname.includes('novelfull') ||
+      hostname.includes('lightnovelpub') ||
+      hostname.includes('novelbuddy')
+    );
+    if (!content || content.length < 100 || looksTruncated) {
       if (!jinaMarkdown) {
         console.log('Insufficient content from HTML, trying Jina Reader fallback...');
         jinaMarkdown = await tryJinaMarkdown();
@@ -1078,7 +1088,7 @@ serve(async (req) => {
             }
           }
         } else if (parsed.content && parsed.content.length > (content?.length || 0)) {
-          content = parsed.content;
+          content = trimChapterContent(parsed.content, title, hostname);
           if (!title && parsed.title) title = parsed.title;
         }
       }
