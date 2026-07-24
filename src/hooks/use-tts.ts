@@ -478,8 +478,10 @@ export function useTTS() {
       setActiveCharIndex(-1);
       clearWordTimer();
       updateMediaSessionPlaybackState('none');
+      void setMusicControlsPlaying(false);
       void releaseWakeLock();
       void stopForegroundService();
+      void stopMusicControls();
       onEndCallbackRef.current?.();
       return;
     }
@@ -1027,6 +1029,7 @@ export function useTTS() {
     setIsPaused(true);
     clearWordTimer();
     updateMediaSessionPlaybackState('paused');
+    void setMusicControlsPlaying(false);
     // Pause silent audio so the OS knows we're truly paused → Bluetooth "play" button works
     pauseSilentAudio();
 
@@ -1053,6 +1056,7 @@ export function useTTS() {
     setIsPaused(false);
     setIsSpeaking(true);
     updateMediaSessionPlaybackState('playing');
+    void setMusicControlsPlaying(true);
     resumeSilentAudio();
 
     const engine = getTTSEngine();
@@ -1079,6 +1083,7 @@ export function useTTS() {
     await cancelCurrentSpeech(true);
     await releaseWakeLock();
     await stopForegroundService();
+    await stopMusicControls();
   }, [cancelCurrentSpeech]);
 
   const speak = useCallback(async (text: string, startCharIndex = 0) => {
@@ -1092,12 +1097,21 @@ export function useTTS() {
         onStop: () => { void stop(); },
         onNextTrack: () => { onNextChapterRef.current?.(); },
       });
+      // Wire native Bluetooth / notification controls (Android APK)
+      setMusicControlsHandlers({
+        onPlay: () => resume(),
+        onPause: () => pause(),
+        onNext: () => { onNextChapterRef.current?.(); },
+        onPrev: () => { onPrevChapterRef.current?.(); },
+        onStop: () => { void stop(); },
+      });
 
       // Start playback IMMEDIATELY — don't wait for foreground service/wake lock
       // These run in background and are not required for audio to start
       const bgSetup = Promise.all([
         startForegroundService().catch(e => ttsError('[useTTS] FG service failed: ' + String(e))),
         acquireWakeLock().catch(e => ttsError('[useTTS] Wake lock failed: ' + String(e))),
+        startMusicControls().catch(e => ttsError('[useTTS] Music controls failed: ' + String(e))),
       ]);
 
       // Start speaking without waiting for background setup
