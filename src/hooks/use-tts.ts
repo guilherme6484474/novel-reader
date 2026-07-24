@@ -1102,7 +1102,8 @@ export function useTTS() {
         onPlay: () => resume(),
         onPause: () => pause(),
         onNext: () => { onNextChapterRef.current?.(); },
-        onPrev: () => { onPrevChapterRef.current?.(); },
+        // Previous-track handling not wired — most Bluetooth remotes only
+        // fire next/pause anyway.
         onStop: () => { void stop(); },
       });
 
