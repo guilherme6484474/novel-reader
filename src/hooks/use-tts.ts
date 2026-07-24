@@ -4,6 +4,7 @@ import { ttsLog, ttsError } from "@/lib/tts-debug-log";
 import { toast } from "sonner";
 import { acquireWakeLock, releaseWakeLock, setMediaSessionHandlers, updateMediaSessionPlaybackState, pauseSilentAudio, resumeSilentAudio } from "@/lib/keep-awake";
 import { startForegroundService, stopForegroundService } from "@/lib/foreground-service";
+import { startMusicControls, stopMusicControls, setMusicControlsHandlers, setMusicControlsPlaying } from "@/lib/music-controls";
 
 import { getTTSEngine } from "@/lib/native-tts";
 import { EDGE_TTS_VOICES, fetchEdgeTtsAudio } from "@/lib/edge-tts";
