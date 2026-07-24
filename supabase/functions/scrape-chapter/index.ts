@@ -804,6 +804,10 @@ function parseJinaMarkdown(md: string, sourceUrl = '', hostname = ''): { title: 
   // Strip markdown links/images, headers, navigation chrome
   body = body
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    // Empty-text markdown links are always ads/nav ([](javascript:;), [](https://ads...))
+    .replace(/\[\s*\]\([^)]*\)/g, '')
+    // Common ad-network / banner lines from freewebnovel & mirrors
+    .replace(/^.*(?:pubfuture|adsbanner|to9game|Anúncios da PubFuture|PubFuture Ads|Advertisement|Sponsored)\b.*$/gim, '')
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
     .replace(/^#{1,6}\s+.*$/gm, '')
     .replace(/^[-*]\s+.*$/gm, '')
@@ -812,7 +816,16 @@ function parseJinaMarkdown(md: string, sourceUrl = '', hostname = ''): { title: 
     .replace(/\n{3,}/g, '\n\n')
     .trim();
   // Build paragraph-ish content
-  const paragraphs = body.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p.length > 1);
+  let paragraphs = body.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p.length > 1);
+  // Drop a duplicated title paragraph if it appears at the top
+  // (freewebnovel Jina output often repeats "Chapter N: ..." right after the H1).
+  if (title && paragraphs.length > 1) {
+    const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+    const t = norm(title);
+    while (paragraphs.length && (norm(paragraphs[0]) === t || t.includes(norm(paragraphs[0])) || norm(paragraphs[0]).includes(t) && paragraphs[0].length < title.length + 40)) {
+      paragraphs.shift();
+    }
+  }
   return { title, content: paragraphs.join('\n\n'), next: nav.next, prev: nav.prev };
 }
 
